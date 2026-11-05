@@ -9,4 +9,6 @@ __pycache__/
 .env
 .idea/
 .vscode/
+.cursor/skills/
 *.log
+logs/

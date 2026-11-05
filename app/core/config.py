@@ -9,8 +9,17 @@ class Settings(BaseSettings):
     app_name: str = "Douying ERP"
     app_env: str = "dev"
     debug: bool = True
-    api_prefix: str = "/api"
+    api_prefix: str = "/api/v1"
     cors_origins: str = "*"
+    database_url: str = "mysql+pymysql://root@127.0.0.1:3306/douying_erp?charset=utf8mb4"
+    redis_url: str = "redis://127.0.0.1:6379/1"
+    fetch_workers: int = 3
+    cookie_renew_hours: int = 2
+    data_refresh_hours: int = 1
+    secret_key: str = "change-me"
+    token_expire_minutes: int = 720
+    init_admin_username: str = "admin"
+    init_admin_password: str = "admin123"
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抖店 管理系统</title>
+    <link rel="icon" type="image/png" href="/static/img/logo.png">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=6">
+</head>
+<body>
+<div class="layout">
+    <aside class="sidebar">
+        <div class="logo" data-logo data-title="抖店 管理系统"></div>
+        <nav class="nav">
+            <div class="nav-group-title">店铺</div>
+            <a class="nav-item active" data-view="stores" href="javascript:void(0)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-8h6v8"/></svg>
+                <span>店铺列表</span>
+            </a>
+            <div class="nav-group-title">资金结算</div>
+            <a class="nav-item nav-sub" data-view="fund-account" href="javascript:void(0)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>
+                <span>账户中心</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">v1.0.0</div>
+    </aside>
+    <div class="main">
+        <header class="topbar">
+            <div class="breadcrumb" id="breadcrumb">店铺列表</div>
+            <div class="topbar-right">
+                <span class="user-chip">
+                    <span class="user-avatar" id="top-avatar">A</span>
+                    <span id="top-username">admin</span>
+                </span>
+                <button class="btn-logout" id="btn-logout" type="button">退出登录</button>
+            </div>
+        </header>
+        <main class="content">
+            <section class="view active" id="view-stores">
+                <div class="panel">
+                    <div class="toolbar">
+                        <p class="form-hint">添加账号会打开抖店邮箱登录。登录后保存每家店自己的登录凭证。</p>
+                        <div class="toolbar-actions">
+                            <button class="btn btn-primary" id="btn-add-store" type="button">＋ 添加账号</button>
+                        </div>
+                    </div>
+                    <div class="filters">
+                        <input id="store-search" type="search" placeholder="搜索店铺名称或店铺ID">
+                        <select id="store-owner"><option value="">全部归属账号</option></select>
+                        <select id="store-identity"><option value="">全部身份</option></select>
+                        <select id="store-login">
+                            <option value="">全部登录状态</option>
+                            <option value="online">在线</option>
+                            <option value="offline">掉线</option>
+                        </select>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                            <tr>
+                                <th>店铺名称</th><th>店铺ID</th><th>归属账号</th><th>身份</th><th>登录</th>
+                            </tr>
+                            </thead>
+                            <tbody id="store-tbody">
+                            <tr><td colspan="5" class="empty">加载中</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+            <section class="view" id="view-fund-account">
+                <div class="panel">
+                    <div class="toolbar">
+                        <div>
+                            <p class="form-hint">金额每小时按各店凭证更新一次。点拉取最新会重新向抖店要。</p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <input id="fund-search" type="search" placeholder="搜索店铺">
+                            <button class="btn btn-primary" id="btn-refresh-accounts" type="button">拉取最新</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table" id="fund-table">
+                            <thead>
+                            <tr>
+                                <th>店铺</th><th>法人</th><th>登录</th>
+                                <th class="sortable" data-sort="balance">账户余额</th>
+                                <th class="sortable" data-sort="withdraw_balance">可提现</th>
+                                <th class="sortable" data-sort="reserve_balance">售后预留</th>
+                                <th class="sortable" data-sort="frozen_balance">已冻结</th>
+                                <th class="sortable" data-sort="pending_settle">待结算</th>
+                                <th class="sortable" data-sort="settle_day">账期</th>
+                                <th class="sortable" data-sort="qianchuan_balance">千川可投</th>
+                                <th class="sortable" data-sort="deposit_base">基础保证金</th>
+                                <th class="sortable" data-sort="deposit_experience">体验保证金</th>
+                                <th>银行卡</th><th></th>
+                            </tr>
+                            </thead>
+                            <tbody id="account-tbody">
+                            <tr><td colspan="14" class="empty">打开后加载</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
+<div id="login-mask" class="mask hidden">
+    <div class="dialog login-dialog">
+        <div class="toolbar">
+            <h2>邮箱登录抖店</h2>
+            <button class="btn" id="close-login" type="button">关闭</button>
+        </div>
+        <p id="login-watch" class="form-hint">登录成功后这个窗口会关掉，接着自动读取每家店的登录凭证。</p>
+        <iframe id="login-frame" title="抖店登录"></iframe>
+    </div>
+</div>
+<div id="fund-mask" class="mask hidden">
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="fund-mask-title">
+        <h2 id="fund-mask-title">正在拉取账户</h2>
+        <p id="fund-mask-text" class="form-hint">正在拉取…</p>
+        <div class="enter-track"><div id="fund-bar"></div></div>
+    </div>
+</div>
+<div id="enter-mask" class="mask hidden">
+    <div class="dialog">
+        <h2>正在读取店铺</h2>
+        <p id="enter-text" class="form-hint">准备进店…</p>
+        <div class="enter-track"><div id="enter-bar"></div></div>
+    </div>
+</div>
+<div id="withdraw-mask" class="mask hidden">
+    <form id="withdraw-form" class="dialog">
+        <h2>货款提现</h2>
+        <p>提现方式：部分提现</p>
+        <p id="withdraw-bank"></p>
+        <label>提现金额（元）<input id="withdraw-yuan" inputmode="decimal" required></label>
+        <label>手机验证码<input id="withdraw-code" required></label>
+        <label>银行附言<input id="withdraw-remark" maxlength="26"></label>
+        <div class="dialog-actions">
+            <button class="btn" id="send-code" type="button">获取验证码</button>
+            <button class="btn" id="close-withdraw" type="button">取消</button>
+            <button class="btn btn-primary" type="submit">提现</button>
+        </div>
+        <p id="withdraw-tip" class="form-hint"></p>
+    </form>
+</div>
+<div class="toast hidden" id="toast"></div>
+<script src="/static/js/common.js"></script>
+<script src="/static/js/dashboard/core.js"></script>
+<script src="/static/js/dashboard/stores.js?v=7"></script>
+<script src="/static/js/dashboard/accounts.js?v=4"></script>
+</body>
+</html>

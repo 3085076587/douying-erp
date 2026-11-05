@@ -1,0 +1,54 @@
+/* 全站设计令牌。配色和微信 ERP 分开，组件结构沿用同一套。 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --primary: #c45c26;
+    --primary-dark: #9a3412;
+    --primary-light: #ffedd5;
+    --danger: #b91c1c;
+    --success: #15803d;
+    --text: #292524;
+    --text-secondary: #78716c;
+    --border: #e7e5e4;
+    --bg: #f6f3ef;
+    --sidebar-bg: #1c1917;
+    --sidebar-active: #44403c;
+    --radius-sm: 6px;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.06);
+    --shadow: 0 8px 24px rgba(28, 25, 23, 0.22);
+}
+
+body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    color: var(--text);
+    font-size: 14px;
+    -webkit-text-size-adjust: 100%;
+}
+
+.hidden { display: none !important; }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translate(-50%, -16px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.toast {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    padding: 11px 22px;
+    border-radius: var(--radius);
+    color: #fff;
+    font-size: 14px;
+    max-width: calc(100vw - 32px);
+    box-shadow: var(--shadow);
+    animation: toast-in 0.3s ease-out;
+}
+
+.toast.error { background: var(--danger); }
+.toast.success { background: var(--success); }
+.toast.warn { background: #b45309; }
