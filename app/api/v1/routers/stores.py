@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user
 from app.db.session import get_db
 from app.schemas.shop import EnterProgress, LoginSync, ShopInfo, ShopList
-from app.services.shop_service import enter_progress, list_shop_rows, login_sync_state
+from app.services.store_service import enter_progress, list_shop_rows, login_sync_state
 
 router = APIRouter(prefix="/stores", tags=["店铺管理"])
 

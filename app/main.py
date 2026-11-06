@@ -18,10 +18,10 @@ from app.services.auth import ensure_admin
 from app.services.dy_proxy import browser_origin, build_proxy_response
 from app.services.schedule_log import write_fail, write_start, write_success
 from app.services import violation_service
-from app.services.shop_service import (
+from app.services.account_service import refresh_saved_accounts
+from app.services.store_service import (
     ensure_owner_account_column,
     ensure_shop_cookie_column,
-    refresh_saved_accounts,
     renew_cookies,
 )
 import app.models  # noqa: F401
@@ -76,25 +76,31 @@ async def _refresh_loop() -> None:
 
 
 async def _violation_loop() -> None:
-    """违规与预警定时更新：每 VIOLATION_REFRESH_MINUTES 分钟自动拉一次。
+    """违规与预警定时更新：启动后先预热一次，之后每 VIOLATION_REFRESH_MINUTES 分钟再拉。
 
-    - 起跑时间按「上一次更新」推算，服务重启不会打乱节奏；
+    - 第一次不等上次更新时间，进程起来约 20 秒就开始拉；
+    - 预热完成后仍按上次更新时间推算下一轮，间隔不变；
     - 每次开始/成功/失败都写 logs/schedule.log，更新完成时间写 logs/violation_scheduler_state.json；
     - 页面上的「数据10分钟更新一次，上一次更新 xxx」就读这个状态文件。
     """
     minutes = violation_service.schedule_minutes()
-    logger.info("违规与预警定时更新已启动，每 %s 分钟一次", minutes)
-    write_start(f"违规与预警，每 {minutes} 分钟一次")
+    logger.info("违规与预警定时更新已启动，启动后预热一次，之后每 %s 分钟一次", minutes)
+    write_start(f"违规与预警，启动后预热，之后每 {minutes} 分钟一次")
+    first = True
     while True:
         try:
             wait_seconds = 20.0
-            last = str(violation_service.read_state().get("last_update") or "")
-            if last:
-                try:
-                    last_at = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
-                    wait_seconds = max(5.0, (last_at + timedelta(minutes=minutes) - datetime.now()).total_seconds())
-                except ValueError:
-                    wait_seconds = 20.0
+            if first:
+                violation_service.begin_warmup()
+            if not first:
+                last = str(violation_service.read_state().get("last_update") or "")
+                if last:
+                    try:
+                        last_at = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+                        wait_seconds = max(5.0, (last_at + timedelta(minutes=minutes) - datetime.now()).total_seconds())
+                    except ValueError:
+                        wait_seconds = 20.0
+            first = False
             await asyncio.sleep(wait_seconds)
 
             write_start("违规与预警")

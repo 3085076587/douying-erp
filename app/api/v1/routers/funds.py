@@ -13,7 +13,7 @@ from app.schemas.fund import (
     WithdrawSubmitResult,
 )
 from app.services.dy_client import ShopApiError, ShopAuthError
-from app.services.shop_service import (
+from app.services.account_service import (
     list_saved_accounts,
     progress,
     request_deposit_withdraw,

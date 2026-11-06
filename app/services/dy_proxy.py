@@ -12,7 +12,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from app.db.session import SessionLocal
 from app.services.dy_client import parse_cookie_header
-from app.services.shop_service import note_embed_login, save_subjects
+from app.services.store_service import note_embed_login, save_subjects
 
 _ROOTS = (
     "jinritemai.com",
@@ -369,7 +369,7 @@ def _shop_home(path: str) -> bool:
 
 def _capture_entered_shop(query: str, cookie_header: str, set_cookies: list[str]) -> None:
     """浏览器进店回调里带有成员编号。凭证按这家店单独保存，不在这里拉货款。"""
-    from app.services.shop_service import save_entered_cookies
+    from app.services.store_service import save_entered_cookies
 
     save_entered_cookies(_query_value(query, "member_id"), _merged_cookies(cookie_header, set_cookies))
 

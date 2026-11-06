@@ -28,8 +28,8 @@ from app.services.dy_client import (
     ShopAuthError,
     cookie_store,
     cookies_for,
-    fetch_violation_list,
 )
+from app.services.dy_violation import fetch_violation_list
 
 _LOG = logging.getLogger("uvicorn.error")
 
@@ -39,7 +39,9 @@ STATE_FILE = LOG_DIR / "violation_scheduler_state.json"
 CACHE_TTL_SECONDS = 600  # 10 分钟内再查用刚才的结果
 _JOB = threading.Lock()
 _PROGRESS = threading.Lock()
-_PROGRESS_SLOT: dict[str, object] = {"running": False, "done": 0, "total": 0, "failed": 0, "message": ""}
+_PROGRESS_SLOT: dict[str, object] = {
+    "running": False, "done": 0, "total": 0, "failed": 0, "message": "", "trigger": ""
+}
 
 
 def schedule_minutes() -> int:
@@ -283,6 +285,16 @@ def progress() -> dict:
         return dict(_PROGRESS_SLOT)
 
 
+def begin_warmup() -> None:
+    """启动预热一开始就记下进度，页面打开就能看到进度条。"""
+    with _PROGRESS:
+        if _PROGRESS_SLOT.get("running"):
+            return
+        _PROGRESS_SLOT.update(
+            running=True, done=0, total=0, failed=0, message="正在预热", trigger="schedule"
+        )
+
+
 def default_range() -> tuple[date, date]:
     """默认近 30 天。"""
     today = date.today()
@@ -415,7 +427,6 @@ def list_violations(
                 "violation_type_raw": item.violation_type or "",
                 "penalty": item.penalty,
                 "penalty_category": "、".join(categories),
-                "credit_change": item.credit_change,
                 "description": summarize_description(item.description),
                 "description_full": item.description or "",
                 "status": item.status,
@@ -581,7 +592,9 @@ def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual
     reasons: list[str] = []
     stats = {"with_violation": 0, "rows": 0, "clear": 0}
     with _PROGRESS:
-        _PROGRESS_SLOT.update(running=True, done=0, total=len(targets), failed=0, message="")
+        _PROGRESS_SLOT.update(
+            running=True, done=0, total=len(targets), failed=0, message="", trigger=trigger
+        )
 
     def pull_group(store_pk: int) -> None:
         ok, reason, total = _pull_one(store_pk, start_ts, end_ts, force)
@@ -672,7 +685,10 @@ def run_refresh_sync(start_date: str = "", end_date: str = "", trigger: str = "s
 
 
 def start_refresh(start_date: str = "", end_date: str = "") -> dict:
-    """页面点拉取最新时立刻返回，进度在后台走。"""
+    """页面点拉取最新时立刻返回，进度在后台走。预热已经在跑就跟着那一次，不再另开。"""
+    with _PROGRESS:
+        if _PROGRESS_SLOT.get("running"):
+            return dict(_PROGRESS_SLOT)
     if not _JOB.acquire(blocking=False):
         return progress()
 
@@ -695,7 +711,7 @@ def start_refresh(start_date: str = "", end_date: str = "") -> dict:
 
     with _PROGRESS:
         _PROGRESS_SLOT.update(
-            running=True, done=0, total=int(_PROGRESS_SLOT.get("total") or 0), failed=0, message=""
+            running=True, done=0, total=int(_PROGRESS_SLOT.get("total") or 0), failed=0, message="", trigger="manual"
         )
     threading.Thread(target=run, name="violation-refresh", daemon=True).start()
     return progress()

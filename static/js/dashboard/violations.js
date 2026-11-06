@@ -26,19 +26,35 @@
         if (state.last_update) lastUpdateSeen = state.last_update;
     }
 
-    // 每分钟问一次后台：定时任务跑完了没？跑完了表格悄悄跟着刷一遍
+    function followRunning() {
+        if (vioTimer) return;
+        el("btn-refresh-violations").disabled = true;
+        watch(function (state) {
+            el("btn-refresh-violations").disabled = false;
+            paintSchedule(state);
+            loadOptions();
+            query();
+        });
+    }
+
+    // 开着这个页面就跟着进度走。预热或定时更新一开始，进度条马上出来。
     function pollSchedule() {
         if (scheduleTimer) return;
         scheduleTimer = setInterval(function () {
             Dash.request("/violations/progress").then(function (state) {
                 var before = lastUpdateSeen;
                 paintSchedule(state);
+                if (state.running) {
+                    paintProgress(state);
+                    followRunning();
+                    return;
+                }
                 if (state.last_update && state.last_update !== before) {
                     loadOptions();
                     query();
                 }
             }).catch(function () {});
-        }, 60000);
+        }, 2000);
     }
 
     function showMask(text) {
@@ -54,13 +70,22 @@
         if (layout) layout.removeAttribute("inert");
     }
 
+    function violationsVisible() {
+        var view = document.getElementById("view-violations");
+        return !!(view && view.classList.contains("active"));
+    }
+
     function paintProgress(state) {
         var total = state.total || 0;
         var done = state.done || 0;
         var bar = el("violation-bar");
-        if (state.running) {
-            showMask(total ? "正在拉取 " + done + " / " + total + " 家" : "正在拉取…");
-            bar.style.width = total ? Math.min(100, Math.round(done * 100 / total)) + "%" : "0";
+        if (state.running && violationsVisible()) {
+            var warming = state.trigger === "schedule";
+            el("violation-mask-title").textContent = warming ? "正在预热违规数据" : "正在拉取违规数据";
+            showMask(total
+                ? (warming ? "正在预热 " : "正在拉取 ") + done + " / " + total + " 家"
+                : "正在预热…");
+            bar.style.width = total ? Math.min(100, Math.round(done * 100 / total)) + "%" : "18%";
             return;
         }
         hideMask();
@@ -68,8 +93,8 @@
     }
 
     function watch(onDone) {
-        if (onDone) vioDone = onDone;
         if (vioTimer) return;
+        if (onDone) vioDone = onDone;
         vioTimer = setInterval(function () {
             Dash.request("/violations/progress").then(function (state) {
                 paintProgress(state);
@@ -228,7 +253,7 @@
     function query(silent) {
         var params = filterParams();
         var mySeq = ++seq;
-        if (!silent) body.innerHTML = '<tr><td colspan="8" class="empty">加载中</td></tr>';
+        if (!silent) body.innerHTML = '<tr><td colspan="7" class="empty">加载中</td></tr>';
         Dash.request("/violations?" + params.toString()).then(function (data) {
             if (mySeq !== seq) return; // 已经有更新的查询了，丢掉旧结果
             items = data.items || [];
@@ -236,7 +261,7 @@
             refreshOptions();
         }).catch(function (err) {
             if (mySeq !== seq) return;
-            body.innerHTML = '<tr><td colspan="8" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
         el("btn-query-violations").classList.remove("is-dirty");
     }
@@ -250,14 +275,6 @@
             autoTimer = null;
             query(true);
         }, 180);
-    }
-
-    function creditText(credit) {
-        // 数据里存的是「0分」「-4分」这种，展示成「信用分-0分」
-        var text = (credit || "").trim();
-        if (!text) return "";
-        if (text.indexOf("信用分") === 0) return text;
-        return "信用分-" + text;
     }
 
     // 违规时间：日期一行、时分一行，比一长串挤在一起好读
@@ -305,11 +322,10 @@
             + (revoked ? "，<b class=\"vio-count-num\">" + revoked + "</b> 条违规已撤销" : "")
             + "。";
         if (!rows.length) {
-            body.innerHTML = '<tr><td colspan="8" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
             return;
         }
         body.innerHTML = rows.map(function (row) {
-            var credit = creditText(row.credit_change);
             return "<tr>"
                 + "<td class=\"vio-shop\">" + Dash.escapeHtml(row.shop_name || row.shop_id) + "</td>"
                 + timeCell(row.violated_at)
@@ -317,7 +333,6 @@
                 + "<td class=\"vio-type\" title=\"" + Dash.escapeHtml(row.violation_type_raw || row.violation_type || "") + "\">"
                 + Dash.escapeHtml(row.violation_type || "—") + "</td>"
                 + penaltyCell(row)
-                + "<td class=\"vio-credit\">" + (credit ? Dash.escapeHtml(credit) : '<span class="vio-muted">—</span>') + "</td>"
                 + "<td class=\"vio-desc\" title=\"" + Dash.escapeHtml(row.description_full || row.description || "") + "\">"
                 + Dash.escapeHtml(row.description || "—") + "</td>"
                 + statusCell(row.status)
@@ -368,14 +383,7 @@
             Dash.request("/violations/progress").then(function (state) {
                 paintSchedule(state);
                 paintProgress(state);
-                if (state.running) {
-                    el("btn-refresh-violations").disabled = true;
-                    watch(function () {
-                        el("btn-refresh-violations").disabled = false;
-                        loadOptions();
-                        query();
-                    });
-                }
+                if (state.running) followRunning();
             }).catch(function () {});
             pollSchedule();
         }

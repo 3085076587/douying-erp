@@ -24,7 +24,6 @@ class ViolationRow(BaseModel):
     violation_type_raw: str = ""  # 抖店原始类型文本（带处置后缀），鼠标悬浮时显示
     penalty: str = ""
     penalty_category: str = ""
-    credit_change: str = ""
     description: str = ""
     description_full: str = ""  # 抖店原文，鼠标悬浮时给完整内容
     status: str = ""
@@ -60,6 +59,7 @@ class ViolationProgress(BaseModel):
     message: str = ""
     last_update: str = ""       # 上一次更新完成的时间，如 2026-11-06 16:43:41
     interval_minutes: int = 10  # 定时更新的间隔（分钟）
+    trigger: str = ""           # schedule 是启动预热和定时更新，manual 是页面上点的拉取
 
 
 class ViolationRefreshRequest(BaseModel):
