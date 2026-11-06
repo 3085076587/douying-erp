@@ -28,6 +28,8 @@ class AccountRow(BaseModel):
     qianchuan_balance: int | None = None
     deposit_base: int | None = None
     deposit_experience: int | None = None
+    deposit_base_withdraw: int | None = None
+    deposit_experience_withdraw: int | None = None
     bank_name: str = ""
     bank_tail: str = ""
     channel_type: str = ""
@@ -47,11 +49,13 @@ class FundProgress(BaseModel):
 
 
 class WithdrawSubmit(BaseModel):
-    """部分提现。金额单位是分。"""
+    """货款部分提现，或保证金可提现部分退回。金额单位是分。"""
 
+    source: str = Field(default="goods", description="goods 货款，base 基础保证金，experience 体验保证金")
     amount_fen: int = Field(gt=0, description="提现金额，单位分")
-    code: str = Field(min_length=1, max_length=12, description="手机验证码")
-    remark: str = Field(default="", max_length=26, description="银行附言")
+    code: str = Field(default="", max_length=12, description="货款提现的手机验证码")
+    remark: str = Field(default="", max_length=26, description="货款提现的银行附言")
+    account_number: str = Field(default="", max_length=32, description="保证金退回的收款银行卡号")
 
 
 class WithdrawSubmitResult(BaseModel):

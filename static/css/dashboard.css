@@ -224,11 +224,12 @@ th.sortable.sort-desc::after { content: " ↓"; }
 .dialog h2 { font-size: 18px; }
 .dialog iframe { width: 100%; border: 0; background: #fafaf9; }
 .dialog label { display: grid; gap: 4px; }
-.dialog input {
+.dialog input, .dialog select {
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 8px 10px;
     font: inherit;
+    background: #fff;
 }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 

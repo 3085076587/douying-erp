@@ -16,6 +16,7 @@ from app.services.dy_client import ShopApiError, ShopAuthError
 from app.services.shop_service import (
     list_saved_accounts,
     progress,
+    request_deposit_withdraw,
     request_partial_withdraw,
     request_withdraw_code,
     start_refresh,
@@ -64,22 +65,38 @@ def send_code(
     return MessageResult(message="验证码已发送")
 
 
-@router.post("/accounts/{store_pk}/withdraw", response_model=WithdrawSubmitResult, summary="提交部分提现")
+@router.post("/accounts/{store_pk}/withdraw", response_model=WithdrawSubmitResult, summary="提交提现")
 def withdraw(
     store_pk: int,
     payload: WithdrawSubmit,
     db: Session = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> WithdrawSubmitResult:
-    """只做部分提现，金额不能超过可提现余额。"""
+    """货款走部分提现。基础保证金和体验保证金退可提现部分。"""
+    source = payload.source.strip() or "goods"
     try:
-        result = request_partial_withdraw(
-            db,
-            store_pk,
-            payload.amount_fen,
-            payload.code.strip(),
-            payload.remark.strip()[:26],
-        )
+        if source == "goods":
+            if not payload.code.strip():
+                raise ShopApiError("请填写手机验证码")
+            result = request_partial_withdraw(
+                db,
+                store_pk,
+                payload.amount_fen,
+                payload.code.strip(),
+                payload.remark.strip()[:26],
+            )
+            message = "已提交部分提现"
+        elif source in {"base", "experience"}:
+            result = request_deposit_withdraw(
+                db,
+                store_pk,
+                source,
+                payload.amount_fen,
+                payload.account_number.strip(),
+            )
+            message = "已提交保证金提现"
+        else:
+            raise ShopApiError("不支持的提现账户")
     except (ShopApiError, ShopAuthError) as exc:
         raise _shop_error(exc) from exc
-    return WithdrawSubmitResult(message="已提交部分提现", store_pk=result["store_pk"], amount_fen=result["amount_fen"])
+    return WithdrawSubmitResult(message=message, store_pk=result["store_pk"], amount_fen=result["amount_fen"])

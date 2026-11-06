@@ -22,16 +22,21 @@ from app.services.dy_client import (
     ShopApiError,
     ShopAuthError,
     as_store,
+    base_refund_detail,
     cookie_store,
     cookies_for,
     dump_cookie_store,
+    experience_refund_check,
+    experience_refund_info,
     fetch_account_bundle,
     load_cookie_blob,
     send_withdraw_code,
     session_alive,
-    touch_session,
+    submit_base_refund,
+    submit_experience_refund,
     submit_partial_withdraw,
     switch_subject,
+    touch_session,
 )
 
 _LOG = logging.getLogger("uvicorn.error")
@@ -49,6 +54,8 @@ _LIVE_KEYS = (
     "qianchuan_balance",
     "deposit_base",
     "deposit_experience",
+    "deposit_base_withdraw",
+    "deposit_experience_withdraw",
     "synced_at",
     "sync_error",
 )
@@ -279,6 +286,16 @@ def _shape_account(shop: Shop, bundle: dict) -> dict:
     bank = _bank(account)
     base = margin.get("basePledgeCashData") if isinstance(margin.get("basePledgeCashData"), dict) else {}
     experience = margin.get("experiencePledgeCashData") if isinstance(margin.get("experiencePledgeCashData"), dict) else {}
+    base_page = bundle.get("base_margin") if isinstance(bundle.get("base_margin"), dict) else {}
+    base_account = base_page.get("base_margin_account_info") if isinstance(base_page.get("base_margin_account_info"), dict) else {}
+    exp_page = bundle.get("experience_margin") if isinstance(bundle.get("experience_margin"), dict) else {}
+    exp_withdraw = exp_page.get("withdraw_detail") if isinstance(exp_page.get("withdraw_detail"), dict) else {}
+    deposit_base = _fen(base_account.get("account_amount"))
+    if deposit_base is None:
+        deposit_base = _fen(base.get("balance"))
+    deposit_experience = _fen(exp_page.get("balance"))
+    if deposit_experience is None:
+        deposit_experience = _fen(experience.get("balance"))
     days = settle.get("DelayDayList") if isinstance(settle.get("DelayDayList"), list) and settle.get("DelayDayList") else None
     settle_day = str(days[0]) if days else ""
     if not settle_day and isinstance(profile.get("shop_settle_day"), dict):
@@ -307,8 +324,10 @@ def _shape_account(shop: Shop, bundle: dict) -> dict:
         "pending_settle": _fen(account.get("valid_pending_settle_amount")),
         "settle_day": settle_day,
         "qianchuan_balance": _fen(qianchuan.get("avail_balance")),
-        "deposit_base": _fen(base.get("balance")),
-        "deposit_experience": _fen(experience.get("balance")),
+        "deposit_base": deposit_base,
+        "deposit_experience": deposit_experience,
+        "deposit_base_withdraw": _fen(base_account.get("can_refund_amount")),
+        "deposit_experience_withdraw": _fen(exp_withdraw.get("withdrawable_amount")),
         "bank_name": bank["bank_name"],
         "bank_tail": bank["bank_tail"],
         "channel_type": bank["channel_type"],
@@ -376,6 +395,8 @@ def _saved_row(shop: Shop, account: ShopAccount | None) -> dict:
         "qianchuan_balance": None,
         "deposit_base": None,
         "deposit_experience": None,
+        "deposit_base_withdraw": None,
+        "deposit_experience_withdraw": None,
         "bank_name": account.bank_name if account is not None else "",
         "bank_tail": account.bank_tail if account is not None else "",
         "channel_type": account.channel_type if account is not None else "",
@@ -682,5 +703,72 @@ def request_partial_withdraw(db: Session, store_pk: int, amount_fen: int, code: 
         remark=remark,
         channel_type=bank["channel_type"] or "PA",
     )
+    fund_cache.drop("live")
+    return {"store_pk": shop.id, "amount_fen": amount_fen}
+
+
+_REFUND_BANK_KEYS = ("account_prop", "bank_name", "bank_branch", "province", "city", "s_bank_code", "bank_code")
+
+
+def _card_number(raw: str) -> str:
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) < 8 or len(digits) > 30:
+        raise ShopApiError("请填写收款银行卡号")
+    return digits
+
+
+def _refund_body(detail: dict, amount_fen: int, account_number: str) -> dict:
+    body: dict[str, Any] = {"amount": amount_fen, "account_number": account_number}
+    for key in _REFUND_BANK_KEYS:
+        value = detail.get(key)
+        if value not in (None, ""):
+            body[key] = value
+    return body
+
+
+def _within_cap(amount_fen: int, *caps: int | None) -> None:
+    known = [cap for cap in caps if cap is not None]
+    if not known:
+        raise ShopApiError("没有查到可提现金额")
+    if amount_fen > min(known):
+        raise ShopApiError("超过可提现金额")
+
+
+def _raise_if_risk(result: dict) -> None:
+    if isinstance(result, dict) and result.get("risk_uuid"):
+        raise ShopApiError("抖店要求安全验证，请到保证金页面完成这次提现")
+
+
+def request_deposit_withdraw(db: Session, store_pk: int, source: str, amount_fen: int, account_number: str) -> dict:
+    """基础保证金、体验保证金的可提现部分退回。金额单位是分。"""
+    if amount_fen <= 0:
+        raise ShopApiError("提现金额要大于 0")
+    number = _card_number(account_number)
+    shop, _cookies = shop_cookies(db, store_pk)
+    bundle = _enter(shop)
+    db.commit()
+    cookies = load_cookie_blob(shop.cookie_data)
+    if source == "base":
+        page = bundle.get("base_margin") if isinstance(bundle.get("base_margin"), dict) else {}
+        account = page.get("base_margin_account_info") if isinstance(page.get("base_margin_account_info"), dict) else {}
+        detail = base_refund_detail(cookies)
+        forbid = str(detail.get("forbid_title") or "").strip()
+        if forbid:
+            raise ShopApiError(forbid[:200])
+        _within_cap(amount_fen, _fen(account.get("can_refund_amount")), _fen(detail.get("refund_pledge_cash")))
+        result = submit_base_refund(cookies, _refund_body(detail, amount_fen, number))
+    elif source == "experience":
+        page = bundle.get("experience_margin") if isinstance(bundle.get("experience_margin"), dict) else {}
+        withdraw = page.get("withdraw_detail") if isinstance(page.get("withdraw_detail"), dict) else {}
+        check = experience_refund_check(cookies)
+        if _fen(check.get("check_result")) == 0:
+            reason = str(check.get("reason") or "").strip() or "当前暂不支持部分退"
+            raise ShopApiError(reason[:200])
+        detail = experience_refund_info(cookies)
+        _within_cap(amount_fen, _fen(withdraw.get("withdrawable_amount")), _fen(detail.get("refund_pledge_cash")))
+        result = submit_experience_refund(cookies, _refund_body(detail, amount_fen, number))
+    else:
+        raise ShopApiError("不支持的提现账户")
+    _raise_if_risk(result)
     fund_cache.drop("live")
     return {"store_pk": shop.id, "amount_fen": amount_fen}

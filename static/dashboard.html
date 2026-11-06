@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=6">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=7">
 </head>
 <body>
 <div class="layout">
@@ -94,12 +94,14 @@
                                 <th class="sortable" data-sort="settle_day">账期</th>
                                 <th class="sortable" data-sort="qianchuan_balance">千川可投</th>
                                 <th class="sortable" data-sort="deposit_base">基础保证金</th>
+                                <th class="sortable" data-sort="deposit_base_withdraw">基础可提现</th>
                                 <th class="sortable" data-sort="deposit_experience">体验保证金</th>
+                                <th class="sortable" data-sort="deposit_experience_withdraw">体验可提现</th>
                                 <th>银行卡</th><th></th>
                             </tr>
                             </thead>
                             <tbody id="account-tbody">
-                            <tr><td colspan="14" class="empty">打开后加载</td></tr>
+                            <tr><td colspan="16" class="empty">打开后加载</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -134,12 +136,21 @@
 </div>
 <div id="withdraw-mask" class="mask hidden">
     <form id="withdraw-form" class="dialog">
-        <h2>货款提现</h2>
-        <p>提现方式：部分提现</p>
+        <h2>提现</h2>
+        <label>提现账户
+            <select id="withdraw-source">
+                <option value="goods">货款</option>
+                <option value="base">基础保证金</option>
+                <option value="experience">体验保证金</option>
+            </select>
+        </label>
+        <p id="withdraw-mode">提现方式：部分提现</p>
         <p id="withdraw-bank"></p>
+        <p id="withdraw-cap" class="form-hint"></p>
         <label>提现金额（元）<input id="withdraw-yuan" inputmode="decimal" required></label>
-        <label>手机验证码<input id="withdraw-code" required></label>
-        <label>银行附言<input id="withdraw-remark" maxlength="26"></label>
+        <label id="withdraw-code-label">手机验证码<input id="withdraw-code" required></label>
+        <label id="withdraw-remark-label">银行附言<input id="withdraw-remark" maxlength="26"></label>
+        <label id="withdraw-card-label" class="hidden">收款银行卡号<input id="withdraw-card" inputmode="numeric" autocomplete="off"></label>
         <div class="dialog-actions">
             <button class="btn" id="send-code" type="button">获取验证码</button>
             <button class="btn" id="close-withdraw" type="button">取消</button>
@@ -152,6 +163,6 @@
 <script src="/static/js/common.js"></script>
 <script src="/static/js/dashboard/core.js"></script>
 <script src="/static/js/dashboard/stores.js?v=7"></script>
-<script src="/static/js/dashboard/accounts.js?v=4"></script>
+<script src="/static/js/dashboard/accounts.js?v=5"></script>
 </body>
 </html>

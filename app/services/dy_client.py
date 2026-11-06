@@ -184,6 +184,21 @@ def fetch_account_bundle(cookies: dict[str, str]) -> dict[str, Any]:
         bundle["profile"] = info
     except (ShopAuthError, ShopApiError):
         bundle["profile"] = {}
+    try:
+        bundle["base_margin"] = request_shop(
+            cookies,
+            "GET",
+            "/api/base_margin/get_base_margin_info",
+            params={"base_margin_platform": "fxg_pc"},
+        )
+    except (ShopAuthError, ShopApiError):
+        bundle["base_margin"] = {}
+    try:
+        bundle["experience_margin"] = request_shop(
+            cookies, "GET", "/governance/shop/tpledgecash/payable/info_v2"
+        )
+    except (ShopAuthError, ShopApiError):
+        bundle["experience_margin"] = {}
     return bundle
 
 
@@ -285,6 +300,33 @@ def send_withdraw_code(cookies: dict[str, str]) -> None:
         "/settlement/index/getmsgverificationcode",
         data={},
     )
+
+
+def base_refund_detail(cookies: dict[str, str]) -> dict:
+    return request_shop(
+        cookies,
+        "GET",
+        "/api/base_margin/get_refund_detail",
+        params={"base_margin_platform": "fxg_pc"},
+    )
+
+
+def submit_base_refund(cookies: dict[str, str], body: dict) -> dict:
+    payload = {"base_margin_platform": "fxg_pc"}
+    payload.update(body)
+    return request_shop(cookies, "POST", "/api/base_margin/submit_refund", json_body=payload)
+
+
+def experience_refund_check(cookies: dict[str, str]) -> dict:
+    return request_shop(cookies, "GET", "/governance/shop/tpledgecash/refund/check")
+
+
+def experience_refund_info(cookies: dict[str, str]) -> dict:
+    return request_shop(cookies, "GET", "/governance/shop/tpledgecash/refund/info")
+
+
+def submit_experience_refund(cookies: dict[str, str], body: dict) -> dict:
+    return request_shop(cookies, "POST", "/governance/shop/tpledgecash/refund/submit", json_body=body)
 
 
 def submit_partial_withdraw(
