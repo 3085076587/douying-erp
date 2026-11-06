@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=7">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=12">
 </head>
 <body>
 <div class="layout">
@@ -17,6 +17,10 @@
             <a class="nav-item active" data-view="stores" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-8h6v8"/></svg>
                 <span>店铺列表</span>
+            </a>
+            <a class="nav-item nav-sub" data-view="violations" href="javascript:void(0)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>
+                <span>违规与预警</span>
             </a>
             <div class="nav-group-title">资金结算</div>
             <a class="nav-item nav-sub" data-view="fund-account" href="javascript:void(0)">
@@ -107,6 +111,67 @@
                     </div>
                 </div>
             </section>
+            <section class="view" id="view-violations">
+                <div class="panel vio-panel">
+                    <div class="vio-toolbar">
+                        <button class="btn" id="btn-refresh-violations" type="button">拉取最新数据</button>
+                        <select id="vio-account">
+                            <option value="">全部抖音</option>
+                        </select>
+                        <div class="vio-multiselect" id="vio-shop-select">
+                            <button class="vio-ms-btn" id="vio-shop-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                                <span id="vio-shop-label">请选择店铺</span>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="vio-ms-panel hidden" id="vio-shop-panel">
+                                <label class="vio-ms-item vio-ms-all">
+                                    <input type="checkbox" id="vio-shop-all">
+                                    <span>全部勾选</span>
+                                </label>
+                                <div class="vio-ms-list" id="vio-shop-list"></div>
+                            </div>
+                        </div>
+                        <select id="vio-type">
+                            <option value="">全部违规类型</option>
+                        </select>
+                        <select id="vio-penalty"><option value="">全部处罚方式</option></select>
+                        <select id="vio-status"><option value="">全部状态</option></select>
+                        <select id="vio-range">
+                            <option value="today">今天</option>
+                            <option value="7">近7天</option>
+                            <option value="30" selected>近30天</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                        <input id="vio-start" type="date">
+                        <span class="vio-date-sep">至</span>
+                        <input id="vio-end" type="date">
+                        <button class="btn btn-primary" id="btn-query-violations" type="button">查询</button>
+                    </div>
+                    <div class="vio-sumline">
+                        <span class="vio-count" id="vio-count">当前 0 条。</span>
+                        <span class="vio-schedule" id="vio-schedule">数据10分钟更新一次</span>
+                    </div>
+                    <div class="vio-table-wrap">
+                        <table class="data-table" id="vio-table">
+                            <thead>
+                            <tr>
+                                <th class="vio-col-shop">店铺</th>
+                                <th class="sortable vio-col-time" data-sort="violated_at">违规时间</th>
+                                <th class="vio-col-id">违规编号</th>
+                                <th class="vio-col-type">违规类型</th>
+                                <th class="vio-col-penalty">处罚方式</th>
+                                <th class="vio-col-credit">信用变更</th>
+                                <th class="vio-col-desc">违规说明</th>
+                                <th class="vio-col-status">状态</th>
+                            </tr>
+                            </thead>
+                            <tbody id="vio-tbody">
+                            <tr><td colspan="8" class="empty">打开后加载</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 </div>
@@ -159,10 +224,18 @@
         <p id="withdraw-tip" class="form-hint"></p>
     </form>
 </div>
+<div id="violation-mask" class="mask hidden">
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="violation-mask-title">
+        <h2 id="violation-mask-title">正在拉取违规数据</h2>
+        <p id="violation-mask-text" class="form-hint">正在拉取…</p>
+        <div class="enter-track"><div id="violation-bar"></div></div>
+    </div>
+</div>
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
-<script src="/static/js/dashboard/core.js"></script>
+<script src="/static/js/dashboard/core.js?v=9"></script>
 <script src="/static/js/dashboard/stores.js?v=7"></script>
 <script src="/static/js/dashboard/accounts.js?v=5"></script>
+<script src="/static/js/dashboard/violations.js?v=11"></script>
 </body>
 </html>

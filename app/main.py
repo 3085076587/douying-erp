@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
@@ -16,7 +16,8 @@ from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.services.auth import ensure_admin
 from app.services.dy_proxy import browser_origin, build_proxy_response
-from app.services.schedule_log import write_fail, write_start
+from app.services.schedule_log import write_fail, write_start, write_success
+from app.services import violation_service
 from app.services.shop_service import (
     ensure_owner_account_column,
     ensure_shop_cookie_column,
@@ -74,6 +75,48 @@ async def _refresh_loop() -> None:
         await asyncio.sleep(hours * 3600)
 
 
+async def _violation_loop() -> None:
+    """违规与预警定时更新：每 VIOLATION_REFRESH_MINUTES 分钟自动拉一次。
+
+    - 起跑时间按「上一次更新」推算，服务重启不会打乱节奏；
+    - 每次开始/成功/失败都写 logs/schedule.log，更新完成时间写 logs/violation_scheduler_state.json；
+    - 页面上的「数据10分钟更新一次，上一次更新 xxx」就读这个状态文件。
+    """
+    minutes = violation_service.schedule_minutes()
+    logger.info("违规与预警定时更新已启动，每 %s 分钟一次", minutes)
+    write_start(f"违规与预警，每 {minutes} 分钟一次")
+    while True:
+        try:
+            wait_seconds = 20.0
+            last = str(violation_service.read_state().get("last_update") or "")
+            if last:
+                try:
+                    last_at = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+                    wait_seconds = max(5.0, (last_at + timedelta(minutes=minutes) - datetime.now()).total_seconds())
+                except ValueError:
+                    wait_seconds = 20.0
+            await asyncio.sleep(wait_seconds)
+
+            write_start("违规与预警")
+            await asyncio.to_thread(violation_service.run_refresh_sync, "", "", "schedule")
+
+            state = violation_service.progress()
+            message = str(state.get("message") or "完成")
+            failed = int(state.get("failed") or 0)
+            if failed:
+                write_fail("违规与预警", message)
+                logger.warning("违规与预警定时更新有失败：%s", message)
+            else:
+                write_success(f"违规与预警 {message}")
+            logger.info("违规与预警下次更新 %s", (datetime.now() + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M"))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("违规与预警定时更新失败")
+            write_fail("违规与预警")
+            await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
@@ -90,12 +133,14 @@ async def lifespan(_: FastAPI):
         logger.exception("数据库还没连上，店铺列表暂时不可用")
     renew_task = asyncio.create_task(_renew_loop())
     refresh_task = asyncio.create_task(_refresh_loop())
+    violation_task = asyncio.create_task(_violation_loop())
     logger.info("%s 已启动，环境：%s", settings.app_name, settings.app_env)
     try:
         yield
     finally:
         renew_task.cancel()
         refresh_task.cancel()
+        violation_task.cancel()
         logger.info("%s 已关闭", settings.app_name)
 
 
@@ -114,15 +159,33 @@ def create_app() -> FastAPI:
     app.include_router(api_router, prefix=settings.api_prefix)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    @app.get("/", include_in_schema=False)
+    @app.middleware("http")
+    async def log_api_call(request: Request, call_next):
+        """接口访问日志，只记路径和状态码，不记响应内容（避免把登录令牌写进文件）。"""
+        response = await call_next(request)
+        if request.url.path.startswith(settings.api_prefix):
+            try:
+                log_dir = Path(__file__).resolve().parent.parent / "logs"
+                log_dir.mkdir(exist_ok=True)
+                with (log_dir / "api.log").open("a", encoding="utf-8") as fh:
+                    fh.write(
+                        f"{datetime.now():%Y-%m-%d %H:%M:%S} {request.method} {request.url.path}"
+                        f"?{request.url.query} -> {response.status_code}"
+                        f" [{response.headers.get('content-type', '')}]\n"
+                    )
+            except Exception:
+                pass
+        return response
+
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     def index():
         return FileResponse(STATIC_DIR / "login.html")
 
-    @app.get("/dashboard", include_in_schema=False)
+    @app.api_route("/dashboard", methods=["GET", "HEAD"], include_in_schema=False)
     def dashboard():
         return FileResponse(STATIC_DIR / "dashboard.html")
 
-    @app.get("/dyp/login", include_in_schema=False)
+    @app.api_route("/dyp/login", methods=["GET", "HEAD"], include_in_schema=False)
     def embedded_login():
         return RedirectResponse("/login/common?channel=zhaoshang")
 
@@ -163,7 +226,13 @@ def create_app() -> FastAPI:
 
     @app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
     async def shop_page(full_path: str, request: Request) -> Response:
-        """抖店页面认自己的路径。主站页面直接挂在本站同名路径上。"""
+        """抖店页面认自己的路径。主站页面直接挂在本站同名路径上。
+
+        以 api/ static/ 开头的是本站自己的地址，找不到就明确返回 404，
+        不能转给抖店——否则前端拿到的是一段 HTML，报错会变得看不懂。
+        """
+        if full_path.startswith(("api/", "static/")):
+            return JSONResponse({"detail": "接口不存在"}, status_code=404)
         return await proxy("fxg.jinritemai.com", full_path, request)
 
     return app

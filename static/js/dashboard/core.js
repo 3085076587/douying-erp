@@ -4,7 +4,7 @@
     var API_BASE = "/api/v1";
     var TOKEN_KEY = "erp_access_token";
     var NAME_KEY = "erp_display_name";
-    var TITLES = { stores: "店铺列表", "fund-account": "账户中心" };
+    var TITLES = { stores: "店铺列表", "fund-account": "账户中心", violations: "违规与预警" };
 
     function token() { return localStorage.getItem(TOKEN_KEY); }
     if (!token()) {
@@ -31,6 +31,25 @@
         showToast._timer = setTimeout(function () { toastEl.classList.add("hidden"); }, 3000);
     }
 
+    // 把响应文本转成对象。有些代理会在 JSON 前面加几个字符，
+    // 这里会退一步从第一个 { 或 [ 开始再解析一次，实在不行才报错。
+    function parseJson(text) {
+        var raw = String(text == null ? "" : text);
+        if (!raw.trim()) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (err) {
+            var start = raw.search(/[{[]/);
+            if (start > 0) {
+                try {
+                    return JSON.parse(raw.slice(start));
+                } catch (err2) {}
+            }
+            var snippet = raw.trim().slice(0, 80).replace(/\s+/g, " ");
+            throw new Error("服务器返回了无法识别的内容：" + snippet);
+        }
+    }
+
     function request(path, options) {
         options = options || {};
         options.headers = Object.assign({ Authorization: "Bearer " + token() }, options.headers || {});
@@ -40,13 +59,20 @@
                 setTimeout(toLogin, 800);
                 throw new Error("未认证");
             }
-            return resp.json().then(function (data) {
+            return resp.text().then(function (text) {
+                var data;
+                try {
+                    data = parseJson(text);
+                } catch (err) {
+                    if (!resp.ok) throw new Error("请求失败（" + resp.status + "），服务器没返回正常内容");
+                    throw err;
+                }
                 if (!resp.ok) {
                     var detail = data && data.detail;
-                    if (Array.isArray(detail)) detail = detail[0].msg;
-                    throw new Error(detail || "请求失败");
+                    if (Array.isArray(detail)) detail = detail[0] && detail[0].msg;
+                    throw new Error(detail || "请求失败（" + resp.status + "）");
                 }
-                return data;
+                return data || {};
             });
         });
     }
@@ -72,6 +98,7 @@
         document.getElementById("breadcrumb").textContent = TITLES[name] || "";
         document.getElementById("withdraw-mask").classList.add("hidden");
         if (name === "fund-account" && window.Dash.loadAccounts) window.Dash.loadAccounts();
+        if (name === "violations" && window.Vio && window.Vio.load) window.Vio.load();
     }
 
     document.querySelectorAll(".nav-item").forEach(function (item) {

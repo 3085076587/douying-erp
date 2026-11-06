@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     fetch_workers: int = 3
     cookie_renew_hours: int = 2
     data_refresh_hours: int = 1
+    violation_refresh_minutes: int = 10
     secret_key: str = "change-me"
     token_expire_minutes: int = 720
     init_admin_username: str = "admin"
