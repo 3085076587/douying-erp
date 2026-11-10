@@ -11,17 +11,37 @@
     var scheduleTimer = null;
     var lastUpdateSeen = "";
     var seq = 0; // 查询序号，避免连续切换时旧结果盖掉新结果
+    var focusPk = "";
+    var focusIds = "";
+    var pinnedIds = "";
 
     function el(id) {
         return document.getElementById(id);
     }
 
-    // 「数据10分钟更新一次，上一次更新 2026-11-06 16:43:41」
+    function nextUpdateText(state) {
+        if (state.next_update) return state.next_update;
+        var match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(state.last_update || "");
+        if (!match) return "";
+        var at = new Date(
+            Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+            Number(match[4]), Number(match[5]), Number(match[6])
+        );
+        if (isNaN(at.getTime())) return "";
+        at.setMinutes(at.getMinutes() + (state.interval_minutes || 10));
+        function pad(value) { return String(value).padStart(2, "0"); }
+        return at.getFullYear() + "-" + pad(at.getMonth() + 1) + "-" + pad(at.getDate())
+            + " " + pad(at.getHours()) + ":" + pad(at.getMinutes());
+    }
+
+    // 「数据10分钟更新一次，上一次更新 …，下次更新 …」
     function paintSchedule(state) {
         if (!state) return;
         var minutes = state.interval_minutes || 10;
         var text = "数据" + minutes + "分钟更新一次";
         if (state.last_update) text += "，上一次更新 " + state.last_update;
+        var next = nextUpdateText(state);
+        if (next) text += "，下次更新 " + next;
         el("vio-schedule").textContent = text;
         if (state.last_update) lastUpdateSeen = state.last_update;
     }
@@ -213,7 +233,28 @@
                     + '</label>';
             }).join("");
             syncShopUI();
+            if (focusPk) applyFocus();
         }).catch(function () {});
+    }
+
+    function applyFocus() {
+        if (!focusPk) return;
+        var boxes = shopBoxes();
+        if (!boxes.length) return;
+        var target = focusPk;
+        focusPk = "";
+        pinnedIds = focusIds;
+        focusIds = "";
+        ["vio-type", "vio-penalty", "vio-status"].forEach(function (id) {
+            if (el(id)) el(id).value = "";
+        });
+        boxes.forEach(function (box) { box.checked = box.value === target; });
+        syncShopUI();
+        query(false);
+    }
+
+    function clearPinned() {
+        pinnedIds = "";
     }
 
     // 当前筛选条件 → 查询参数（查询和下拉选项共用同一套条件，保证两边一致）
@@ -226,6 +267,7 @@
         params.set("violation_type", el("vio-type").value || "");
         params.set("penalty", el("vio-penalty").value || "");
         params.set("status", el("vio-status").value || "");
+        if (pinnedIds) params.set("violation_ids", pinnedIds);
         params.set("start_date", el("vio-start").value || "");
         params.set("end_date", el("vio-end").value || "");
         return params;
@@ -387,7 +429,8 @@
             }).catch(function () {});
             pollSchedule();
         }
-        query();
+        if (focusPk && shopBoxes().length) applyFocus();
+        else if (!focusPk) query();
     }
 
     // 店铺下拉：点按钮开合，点页面别处收起
@@ -408,31 +451,39 @@
         var checked = el("vio-shop-all").checked;
         shopBoxes().forEach(function (box) { box.checked = checked; });
         syncShopUI();
+        clearPinned();
         autoApply();
     });
     el("vio-shop-list").addEventListener("change", function (event) {
         if (event.target && event.target.type === "checkbox") {
             syncShopUI();
+            clearPinned();
             autoApply();
         }
     });
 
     el("btn-query-violations").addEventListener("click", function () {
+        clearPinned();
         query(false);
     });
     el("btn-refresh-violations").addEventListener("click", refresh);
     // 四个下拉：选完立刻按新条件刷新表格和后面的选项
     ["vio-account", "vio-type", "vio-penalty", "vio-status"].forEach(function (id) {
-        el(id).addEventListener("change", autoApply);
+        el(id).addEventListener("change", function () {
+            clearPinned();
+            autoApply();
+        });
     });
     // 时间下拉一改就把起止日期跟着换掉，然后自动查
     el("vio-range").addEventListener("change", function () {
         defaultDates();
+        clearPinned();
         autoApply();
     });
     // 日期框按你的要求保持手动：改完点「查询」。按钮会亮一下提醒还没查
     ["vio-start", "vio-end"].forEach(function (id) {
         el(id).addEventListener("change", function () {
+            clearPinned();
             el("btn-query-violations").classList.add("is-dirty");
         });
     });
@@ -441,5 +492,12 @@
         paint();
     });
 
-    window.Vio = { load: load };
+    window.Vio = {
+        load: load,
+        openShop: function (storePk, ticketIds) {
+            focusPk = String(storePk || "");
+            focusIds = ticketIds == null ? "" : String(ticketIds);
+            Dash.showView("violations");
+        },
+    };
 })();

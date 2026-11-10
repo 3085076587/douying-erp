@@ -33,12 +33,13 @@ from app.services.dy_client import (
     cookie_store,
     cookies_for,
     dump_cookie_store,
+    enter_listed_shop,
     load_cookie_blob,
     session_alive,
     switch_subject,
 )
 from app.services.schedule_log import write_fail, write_success
-from app.services.store_service import keep_shop_jar
+from app.services.store_service import keep_shop_jar, revive_shop
 
 _LOG = logging.getLogger("uvicorn.error")
 _JOB = threading.Lock()
@@ -68,10 +69,10 @@ def cache_ttl_seconds() -> int:
 
 
 def worker_count(job_count: int) -> int:
+    """每家店凭证互相独立，20 家可以一起拉。违规拉取仍用自己的并发上限。"""
     if job_count < 1:
         return 0
-    configured = max(1, min(int(get_settings().fetch_workers or 3), 32))
-    return min(configured, job_count)
+    return min(job_count, 20)
 
 
 def _fen(value: Any) -> int | None:
@@ -244,9 +245,15 @@ def _saved_row(shop: Shop, account: ShopAccount | None) -> dict:
 
 
 def _store_live(store_pk: int, row: dict) -> None:
-    payload = {key: row.get(key) for key in _LIVE_KEYS}
     with _LIVE:
         current = fund_cache.read_obj("live") or {}
+        previous = current.get(str(store_pk)) if isinstance(current.get(str(store_pk)), dict) else {}
+        payload = {}
+        for key in _LIVE_KEYS:
+            value = row.get(key) if key in row else previous.get(key)
+            if key in {"settle_day", "sync_error"} and value is None:
+                value = ""
+            payload[key] = value
         current[str(store_pk)] = payload
         fund_cache.write_obj("live", current, cache_ttl_seconds())
 
@@ -262,8 +269,9 @@ def list_saved_accounts(db: Session) -> list[dict]:
         extra = live.get(str(shop.id))
         if isinstance(extra, dict):
             for key in _LIVE_KEYS:
-                if key in extra:
-                    row[key] = extra[key]
+                if key not in extra or extra[key] is None:
+                    continue
+                row[key] = extra[key]
         elif not shop.shop_cookie:
             row["sync_error"] = "还没有这家店的登录凭证"
         rows.append(row)
@@ -275,13 +283,28 @@ def _enter(shop: Shop) -> dict:
     cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
     if not cookies:
         raise ShopAuthError("还没有登录凭证")
-    bundle = fetch_account_bundle(cookies)
+    try:
+        bundle = fetch_account_bundle(cookies)
+    except ShopAuthError:
+        enter_listed_shop(cookies, shop.shop_id, host=FXG_HOST, login_source="doudian_pc_web")
+        bundle = fetch_account_bundle(cookies)
     keep_shop_jar(shop, cookies)
     account = bundle.get("account") if isinstance(bundle, dict) else None
     current = str(account.get("shop_id") or "") if isinstance(account, dict) else ""
     if current != shop.shop_id:
         raise ShopAuthError("还没进入这家店铺")
     return bundle
+
+
+def _keep_login(db: Session, shop: Shop) -> None:
+    """会话还在就保持在线。主站会话没了，再用通行证重新进店。"""
+    cookies = load_cookie_blob(shop.cookie_data)
+    if cookies and session_alive(cookies):
+        shop.login_status = "online"
+        return
+    if revive_shop(db, shop):
+        return
+    shop.login_status = "offline"
 
 
 def _pull_one(shop_id: int) -> dict:
@@ -291,25 +314,25 @@ def _pull_one(shop_id: int) -> dict:
         if shop is None:
             return {}
         try:
-            bundle = _enter(shop)
+            try:
+                bundle = _enter(shop)
+            except ShopAuthError as first:
+                if "还没进入" not in str(first) or not revive_shop(db, shop):
+                    raise first
+                bundle = _enter(shop)
             row = _shape_account(shop, bundle)
             _write_snapshot(db, shop, row)
             db.commit()
             _store_live(shop.id, row)
             return row
         except ShopAuthError as exc:
-            cookies = load_cookie_blob(shop.cookie_data)
-            shop.login_status = "online" if cookies and session_alive(cookies) else "offline"
+            _keep_login(db, shop)
             db.commit()
-            message = str(exc) or "登录已失效"
-            if shop.login_status == "online" and "还没进入" not in message and "还没有登录凭证" not in message:
-                message = "还没进入这家店铺"
-            row = _error_row(shop, message)
+            row = _error_row(shop, str(exc) or "登录已失效")
             _store_live(shop.id, row)
             return row
         except ShopApiError as exc:
-            cookies = load_cookie_blob(shop.cookie_data)
-            shop.login_status = "online" if cookies and session_alive(cookies) else "offline"
+            _keep_login(db, shop)
             db.commit()
             row = _error_row(shop, exc.message)
             _store_live(shop.id, row)

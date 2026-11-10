@@ -4,7 +4,7 @@
     var API_BASE = "/api/v1";
     var TOKEN_KEY = "erp_access_token";
     var NAME_KEY = "erp_display_name";
-    var TITLES = { stores: "店铺列表", "fund-account": "账户中心", violations: "违规与预警" };
+    var TITLES = { stores: "店铺列表", "fund-account": "账户中心", violations: "违规与预警", center: "数据中心" };
 
     function token() { return localStorage.getItem(TOKEN_KEY); }
     if (!token()) {
@@ -99,6 +99,7 @@
         document.getElementById("withdraw-mask").classList.add("hidden");
         if (name === "fund-account" && window.Dash.loadAccounts) window.Dash.loadAccounts();
         if (name === "violations" && window.Vio && window.Vio.load) window.Vio.load();
+        if (name === "center" && window.Dash.loadCenter) window.Dash.loadCenter();
     }
 
     document.querySelectorAll(".nav-item").forEach(function (item) {

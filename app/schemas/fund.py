@@ -1,5 +1,5 @@
 """账户中心返回结构。金额单位是分，页面上再换成元。"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ChannelRow(BaseModel):
@@ -36,6 +36,11 @@ class AccountRow(BaseModel):
     channels: list[ChannelRow] = []
     synced_at: str | None = None
     sync_error: str = ""
+
+    @field_validator("settle_day", "sync_error", mode="before")
+    @classmethod
+    def _blank(cls, value: object) -> object:
+        return "" if value is None else value
 
 
 class AccountList(BaseModel):

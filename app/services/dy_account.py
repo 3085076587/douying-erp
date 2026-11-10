@@ -1,6 +1,7 @@
 """账户中心调用的抖店接口。金额单位是分。"""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from app.services.dy_client import ShopApiError, ShopAuthError, request_shop
@@ -10,48 +11,33 @@ _COMMON_QUERY = {"req_source": "dou_dian_pc", "ac_redesign": "doudian"}
 
 
 def fetch_account_bundle(cookies: dict[str, str]) -> dict[str, Any]:
-    """货款账户、保证金、千川可投、结算周期、管理人。"""
+    """货款账户、保证金、千川可投、结算周期、管理人。货款先取，其余一起取。"""
     account = request_shop(cookies, "GET", "/account/center/getAccountList", params=_ACCOUNT_QUERY)
     bundle: dict[str, Any] = {"account": account}
-    for key, path in (
-        ("margin", "/account/center/marginExpose"),
-        ("settle", "/account/center/getShopSettleDayConfig"),
-        ("freeze", "/settlement/account/queryfreezeinfo"),
-    ):
+    jobs = (
+        ("margin", "/account/center/marginExpose", _COMMON_QUERY),
+        ("settle", "/account/center/getShopSettleDayConfig", _COMMON_QUERY),
+        ("freeze", "/settlement/account/queryfreezeinfo", _COMMON_QUERY),
+        ("qianchuan", "/settlement/account/queryQCShopInfo", {"req_source": "dou_dian_pc"}),
+        ("admin", "/byteshop/shopuser/getAdminV2", None),
+        ("profile", "/center/qualification/shop/info", {"version": "0"}),
+        ("base_margin", "/api/base_margin/get_base_margin_info", {"base_margin_platform": "fxg_pc"}),
+        ("experience_margin", "/governance/shop/tpledgecash/payable/info_v2", None),
+    )
+
+    def pull(job: tuple[str, str, dict | None]) -> tuple[str, dict, dict[str, str]]:
+        key, path, params = job
+        local = dict(cookies)
         try:
-            bundle[key] = request_shop(cookies, "GET", path, params=_COMMON_QUERY)
+            data = request_shop(local, "GET", path, params=params)
         except (ShopAuthError, ShopApiError):
-            bundle[key] = {}
-    try:
-        bundle["qianchuan"] = request_shop(
-            cookies, "GET", "/settlement/account/queryQCShopInfo", params={"req_source": "dou_dian_pc"}
-        )
-    except (ShopAuthError, ShopApiError):
-        bundle["qianchuan"] = {}
-    try:
-        bundle["admin"] = request_shop(cookies, "GET", "/byteshop/shopuser/getAdminV2")
-    except (ShopAuthError, ShopApiError):
-        bundle["admin"] = {}
-    try:
-        info = request_shop(cookies, "GET", "/center/qualification/shop/info", params={"version": "0"})
-        bundle["profile"] = info
-    except (ShopAuthError, ShopApiError):
-        bundle["profile"] = {}
-    try:
-        bundle["base_margin"] = request_shop(
-            cookies,
-            "GET",
-            "/api/base_margin/get_base_margin_info",
-            params={"base_margin_platform": "fxg_pc"},
-        )
-    except (ShopAuthError, ShopApiError):
-        bundle["base_margin"] = {}
-    try:
-        bundle["experience_margin"] = request_shop(
-            cookies, "GET", "/governance/shop/tpledgecash/payable/info_v2"
-        )
-    except (ShopAuthError, ShopApiError):
-        bundle["experience_margin"] = {}
+            data = {}
+        return key, data if isinstance(data, dict) else {}, local
+
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        for key, data, local in pool.map(pull, jobs):
+            bundle[key] = data
+            cookies.update({name: value for name, value in local.items() if name and value})
     return bundle
 
 

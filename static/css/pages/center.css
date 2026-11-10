@@ -1,0 +1,165 @@
+.center-panel { padding: 16px; }
+
+.center-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.center-toolbar select,
+.center-toolbar input[type="date"] {
+    height: 34px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font-size: 13px;
+    max-width: 160px;
+    cursor: pointer;
+}
+.center-toolbar input[type="date"] { width: 128px; cursor: text; }
+.center-toolbar input[type="date"]:disabled,
+.center-toolbar select:disabled {
+    background: #f6f3ef;
+    color: var(--text-secondary);
+    cursor: default;
+}
+.center-toolbar select:focus,
+.center-toolbar input[type="date"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(196, 92, 38, 0.12);
+}
+.center-toolbar .btn { height: 34px; font-size: 13px; padding: 0 14px; white-space: nowrap; border-radius: 8px; }
+#center-account { max-width: 240px; min-width: 140px; }
+.center-date-sep { color: var(--text-secondary); font-size: 13px; }
+.center-note { margin: 8px 0 0; }
+
+.center-tabs {
+    display: flex;
+    gap: 28px;
+    margin-top: 8px;
+    border-bottom: 1px solid var(--border);
+}
+.center-tab {
+    margin: 0;
+    padding: 10px 0;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+}
+.center-tab.active {
+    color: var(--text);
+    font-weight: 600;
+    border-bottom-color: var(--primary);
+}
+
+.center-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 48px 16px 28px;
+}
+.center-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+.center-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #efeae4;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: center-spin 0.8s linear infinite;
+}
+@keyframes center-spin { to { transform: rotate(360deg); } }
+.center-track { width: min(420px, 100%); }
+
+.center-pane { padding-top: 14px; }
+.center-pane .form-hint { margin-top: 0; }
+
+.center-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.center-shop {
+    border: 1px solid var(--border, #eee);
+    border-radius: 8px;
+    padding: 14px 16px;
+    background: #fff;
+}
+.center-shop h3 {
+    margin: 0 0 12px;
+    font-size: 15px;
+}
+.center-shop .shop-id {
+    margin-left: 8px;
+    color: #999;
+    font-size: 12px;
+    font-weight: 400;
+}
+.center-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+.center-metric {
+    border: 1px solid #f0f0f0;
+    border-radius: 6px;
+    padding: 10px 12px;
+    min-height: 78px;
+}
+.center-metric .label { color: #888; font-size: 12px; }
+.center-metric .value { margin-top: 4px; font-size: 18px; font-weight: 600; }
+.center-metric .sub { margin-top: 4px; font-size: 12px; color: #888; }
+.center-metric .sub.up { color: #e5484d; }
+.center-metric .sub.down { color: #30a46c; }
+.center-error { color: #e5484d; font-size: 13px; }
+.center-home-id { color: #999; font-size: 12px; font-weight: 400; }
+.center-shop-value { font-weight: 600; }
+.center-product-name { max-width: 320px; white-space: normal; line-height: 1.4; }
+#view-center.center-no-time #center-preset,
+#view-center.center-no-time #center-start,
+#view-center.center-no-time #center-end,
+#view-center.center-no-time .center-date-sep,
+#view-center.center-no-time #center-range-note { display: none; }
+.center-shop-sub { margin-top: 2px; color: #888; font-size: 12px; }
+.center-sort {
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.center-sort:hover { color: var(--primary); }
+.center-summary-box { display: none; margin-top: 8px; }
+#view-center.center-has-summary .center-summary-box { display: block; }
+.center-summary-line { margin: 2px 0 8px; font-size: 13px; color: #888; }
+.center-summary-item { margin-right: 18px; white-space: nowrap; }
+.center-summary-item b { color: var(--text); font-weight: 600; margin-left: 6px; }
+.center-jump {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--primary);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.center-jump:hover { text-decoration: underline; }
+
+@media (max-width: 1100px) {
+    .center-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

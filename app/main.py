@@ -18,6 +18,8 @@ from app.services.auth import ensure_admin
 from app.services.dy_proxy import browser_origin, build_proxy_response
 from app.services.schedule_log import write_fail, write_start, write_success
 from app.services import violation_service
+from app.services.center_service import center_schedule, load_center_cache, run_center_cycle, run_overview_cycle, touch_daily
+from app.services.home_service import next_home_wait, refresh_home
 from app.services.account_service import refresh_saved_accounts
 from app.services.store_service import (
     ensure_owner_account_column,
@@ -81,7 +83,7 @@ async def _violation_loop() -> None:
     - 第一次不等上次更新时间，进程起来约 20 秒就开始拉；
     - 预热完成后仍按上次更新时间推算下一轮，间隔不变；
     - 每次开始/成功/失败都写 logs/schedule.log，更新完成时间写 logs/violation_scheduler_state.json；
-    - 页面上的「数据10分钟更新一次，上一次更新 xxx」就读这个状态文件。
+    - 页面上的「数据10分钟更新一次，上一次更新 xxx，下次更新 xxx」就读这个状态文件。
     """
     minutes = violation_service.schedule_minutes()
     logger.info("违规与预警定时更新已启动，启动后预热一次，之后每 %s 分钟一次", minutes)
@@ -123,6 +125,74 @@ async def _violation_loop() -> None:
             await asyncio.sleep(60)
 
 
+async def _center_loop() -> None:
+    """店铺明细、商品明细：启动后先预热，之后每 10 分钟写入 Redis。"""
+    logger.info("店铺明细、商品明细已启动，20秒后预热，之后每 10 分钟写入 Redis")
+    write_start("店铺明细、商品明细，20秒后预热，之后每 10 分钟")
+    await asyncio.sleep(20)
+    while True:
+        try:
+            write_start("店铺明细、商品明细")
+            await asyncio.to_thread(run_center_cycle)
+            write_success("店铺明细、商品明细已写入 Redis")
+            state = center_schedule()
+            logger.info("店铺明细、商品明细下次更新 %s", state.get("next_update") or "")
+            wait_seconds = 600.0
+            nxt = str(state.get("next_update") or "")
+            if nxt:
+                try:
+                    nxt_at = datetime.strptime(nxt, "%Y-%m-%d %H:%M")
+                    wait_seconds = max(5.0, (nxt_at - datetime.now()).total_seconds())
+                except ValueError:
+                    wait_seconds = 600.0
+            await asyncio.sleep(wait_seconds)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("店铺明细、商品明细更新失败")
+            write_fail("店铺明细、商品明细")
+            await asyncio.sleep(60)
+
+
+def _run_daily() -> str:
+    home = refresh_home()
+    touch_daily()
+    overview = run_overview_cycle()
+    failed = int(home.get("failed") or 0) + int(overview.get("failed") or 0)
+    if not failed:
+        return ""
+    return f"店铺首页 {home.get('failed') or 0} 家没拉到，数据总览 {overview.get('failed') or 0} 家次没拉到"
+
+
+def _next_daily_text() -> str:
+    nxt = datetime.now() + timedelta(seconds=next_home_wait())
+    return nxt.strftime("%Y-%m-%d %H:%M")
+
+
+async def _home_loop() -> None:
+    """数据总览和店铺首页：启动后先预热，之后每天 0 点和 12 点写入 Redis。页面不展示这个时间。"""
+    logger.info("数据总览、店铺首页已启动，25秒后预热，之后每天 0 点和 12 点写入 Redis")
+    write_start("数据总览、店铺首页，25秒后预热，之后每天 0 点和 12 点")
+    await asyncio.sleep(25)
+    while True:
+        try:
+            write_start("数据总览、店铺首页")
+            detail = await asyncio.to_thread(_run_daily)
+            if detail:
+                write_fail("数据总览、店铺首页", detail)
+            else:
+                write_success("数据总览、店铺首页已写入 Redis")
+            nxt = _next_daily_text()
+            logger.info("数据总览、店铺首页下次更新 %s", nxt)
+            await asyncio.sleep(next_home_wait())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("数据总览、店铺首页更新失败")
+            write_fail("数据总览、店铺首页")
+            await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
@@ -137,16 +207,24 @@ async def lifespan(_: FastAPI):
             db.close()
     except Exception:
         logger.exception("数据库还没连上，店铺列表暂时不可用")
+    try:
+        load_center_cache()
+    except Exception:
+        logger.exception("店铺明细、商品明细缓存没读出来")
     renew_task = asyncio.create_task(_renew_loop())
+    center_task = asyncio.create_task(_center_loop())
     refresh_task = asyncio.create_task(_refresh_loop())
     violation_task = asyncio.create_task(_violation_loop())
+    home_task = asyncio.create_task(_home_loop())
     logger.info("%s 已启动，环境：%s", settings.app_name, settings.app_env)
     try:
         yield
     finally:
         renew_task.cancel()
+        center_task.cancel()
         refresh_task.cancel()
         violation_task.cancel()
+        home_task.cancel()
         logger.info("%s 已关闭", settings.app_name)
 
 

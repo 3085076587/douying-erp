@@ -28,6 +28,7 @@ from app.services.dy_client import (
     ShopAuthError,
     cookie_store,
     cookies_for,
+    session_alive,
 )
 from app.services.dy_violation import fetch_violation_list
 
@@ -47,6 +48,18 @@ _PROGRESS_SLOT: dict[str, object] = {
 def schedule_minutes() -> int:
     """定时更新的间隔，默认 10 分钟，可用环境变量 VIOLATION_REFRESH_MINUTES 改。"""
     return max(1, int(get_settings().violation_refresh_minutes or 10))
+
+
+def next_update_text(last_update: str = "") -> str:
+    """下次更新时间。和定时任务一样，从上次完成时间再加一个间隔。"""
+    raw = (last_update or "").strip()
+    if not raw:
+        return ""
+    try:
+        last_at = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
+    return (last_at + timedelta(minutes=schedule_minutes())).strftime("%Y-%m-%d %H:%M")
 
 
 def read_state() -> dict:
@@ -347,6 +360,7 @@ def _query_violations(
     status: str = "",
     start_date: str = "",
     end_date: str = "",
+    violation_ids: list[str] | None = None,
 ):
     """按店铺、账号、类型、状态、时间查库（处罚方式要归类，放在内存里过滤）。
 
@@ -364,10 +378,12 @@ def _query_violations(
         query = query.where(DyViolation.violation_type.in_(type_values))
     if status:
         query = query.where(DyViolation.status == status)
+    if violation_ids is not None:
+        query = query.where(DyViolation.violation_id.in_(violation_ids or ["-"]))
     try:
-        if start_date:
+        if violation_ids is None and start_date:
             query = query.where(DyViolation.violated_at >= datetime.combine(_parse_date(start_date), datetime.min.time()))
-        if end_date:
+        if violation_ids is None and end_date:
             end_dt = datetime.combine(_parse_date(end_date) + timedelta(days=1), datetime.min.time())
             query = query.where(DyViolation.violated_at < end_dt)
     except ValueError:
@@ -392,6 +408,7 @@ def list_violations(
     status: str = "",
     start_date: str = "",
     end_date: str = "",
+    violation_ids: list[str] | None = None,
 ) -> list[dict]:
     """按筛选条件查库。时间按违规时间倒序。
 
@@ -412,6 +429,7 @@ def list_violations(
         status=status,
         start_date=start_date,
         end_date=end_date,
+        violation_ids=violation_ids,
     ):
         categories = penalty_categories(item.penalty)
         if penalty and penalty not in categories:
@@ -549,7 +567,13 @@ def _pull_one(store_pk: int, start_ts: int, end_ts: int, force: bool) -> tuple[b
         try:
             items, platform_total = fetch_violation_list(cookies, start_ts, end_ts)
         except ShopAuthError as exc:
-            shop.login_status = "offline"
+            alive = bool(cookies) and session_alive(cookies)
+            if not alive:
+                from app.services.store_service import revive_shop
+
+                alive = revive_shop(db, shop)
+            if not alive:
+                shop.login_status = "offline"
             db.commit()
             return False, str(exc) or "登录已失效", 0
         except ShopApiError as exc:

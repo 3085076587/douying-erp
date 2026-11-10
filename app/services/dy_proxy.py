@@ -103,6 +103,11 @@ _PAGE_BOOT = (
     "set:function(v){return hrefDesc.set.call(this,mapUrl(String(v)));}});}}catch(e){}"
     "['assign','replace'].forEach(function(name){var raw=Location.prototype[name];"
     "if(!raw)return;Location.prototype[name]=function(url){return raw.call(this,mapUrl(String(url)));};});"
+    "document.addEventListener('click',function(ev){var node=ev.target;"
+    "while(node&&node.tagName!=='A')node=node.parentElement;if(!node||!node.href)return;"
+    "var next=mapUrl(node.href);if(next===node.href)return;ev.preventDefault();location.assign(next);},true);"
+    "var rawOpen=window.open;if(rawOpen){window.open=function(url){"
+    "if(typeof url==='string')arguments[0]=mapUrl(url);return rawOpen.apply(window,arguments);};}"
     "})();</script>"
 )
 _EMAIL_BOOT = (
@@ -299,11 +304,104 @@ def _copy_jars(sid: str) -> dict[str, dict[str, str]]:
         return {host: dict(jar) for host, jar in found.items()}
 
 
+def _save_session_shop(cookies: dict[str, str]) -> str:
+    """用这套凭证问货款接口当前是哪家店，对上了才写入。问不到就不动原来的凭证。"""
+    from app.services.dy_account import _ACCOUNT_QUERY
+    from app.services.dy_client import ShopApiError, ShopAuthError, request_shop
+
+    if not cookies:
+        return ""
+    jar = dict(cookies)
+    try:
+        account = request_shop(jar, "GET", "/account/center/getAccountList", params=_ACCOUNT_QUERY)
+    except (ShopAuthError, ShopApiError) as exc:
+        _LOG.info("这套登录凭证没有进入店铺：%s", exc)
+        return ""
+    shop_id = str(account.get("shop_id") or "").strip() if isinstance(account, dict) else ""
+    if not shop_id:
+        return ""
+    _save_shop_cookies(jar, shop_id)
+    _LOG.info("登录跳转已写入店铺 %s", shop_id)
+    return shop_id
+
+
+def _follow_and_save(cookies: dict[str, str], start_url: str) -> str:
+    """登录接口把浏览器送去官网。这里用同一套凭证跟着跳，跳完再问是哪家店。"""
+    from urllib.parse import urljoin
+
+    import httpx
+
+    jar = dict(cookies)
+    url = (start_url or "").strip()
+    if url.startswith("/"):
+        url = "https://fxg.jinritemai.com" + url
+    if "jinritemai.com" not in url:
+        return _save_session_shop(jar)
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://fxg.jinritemai.com/login/common",
+    }
+    for _ in range(6):
+        try:
+            response = httpx.get(url, cookies=jar, headers=headers, timeout=30, follow_redirects=False)
+        except httpx.HTTPError:
+            break
+        issued = response.headers.get_list("set-cookie") if hasattr(response.headers, "get_list") else []
+        for raw in issued:
+            piece = raw.split(";", 1)[0]
+            if "=" not in piece:
+                continue
+            key, value = piece.split("=", 1)
+            if key.strip() and value.strip():
+                jar[key.strip()] = value.strip()
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            break
+        location = response.headers.get("location") or ""
+        if not location:
+            break
+        url = urljoin(str(response.url), location)
+    return _save_session_shop(jar)
+
+
+def _capture_login_body(text: str, cookies: dict[str, str], path: str) -> None:
+    """邮箱登录成功后，官网跳转地址不改给浏览器，服务端自己跟上并保存这家店。"""
+    from app.services.schedule_log import write_fail, write_success
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(payload, dict):
+        return
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    for source in (payload, data):
+        if "error_code" not in source:
+            continue
+        try:
+            code_no = int(source.get("error_code") or 0)
+        except (TypeError, ValueError):
+            return
+        if code_no not in {0}:
+            return
+    url = str(data.get("redirect_url") or data.get("next_url") or data.get("next") or "")
+    if not url:
+        return
+    write_success(f"登录跳转开始跟上 {path[:80]}")
+    shop_id = _follow_and_save(cookies, url)
+    if shop_id:
+        write_success(f"登录跳转已写入店铺 {shop_id}")
+    else:
+        write_fail("登录跳转", "跟上之后仍然没有进入店铺")
+
+
 def _save_shop_cookies(cookies: dict[str, str], shop_id: str) -> None:
     from sqlalchemy import select
 
     from app.models.shop import Shop
-    from app.services.dy_client import FXG_HOST, dump_cookie_store
+    from app.services.store_service import merge_shop_cookies
 
     if not cookies or not shop_id:
         return
@@ -312,9 +410,7 @@ def _save_shop_cookies(cookies: dict[str, str], shop_id: str) -> None:
         shop = db.scalar(select(Shop).where(Shop.shop_id == shop_id))
         if shop is None:
             return
-        shop.cookie_data = dump_cookie_store({FXG_HOST: cookies})
-        shop.login_status = "online"
-        shop.shop_cookie = 1
+        merge_shop_cookies(shop, cookies)
         db.commit()
     finally:
         db.close()
@@ -527,6 +623,7 @@ def build_proxy_response(
             return 200, _picker_page(), "text/html; charset=utf-8", back_headers
         return 200, b'{"code":0,"message":"success"}', "application/json", []
     if method == "GET" and request_headers.get("sec-fetch-dest") == "document" and _shop_home(upstream_path):
+        _save_session_shop(parse_cookie_header(cookie))
         return 200, _picker_page(), "text/html; charset=utf-8", back_headers
     if method == "GET" and host.lower().split(":")[0] == "buyin.jinritemai.com" and not upstream_path.strip("/"):
         return 200, _picker_page(), "text/html; charset=utf-8", back_headers
@@ -588,6 +685,7 @@ def build_proxy_response(
     back_to_picker = status == 200 and "ecomauth/loginv1/callback" in upstream_path and navigating
     if status == 200 and "ecomauth/loginv1/callback" in upstream_path:
         _capture_entered_shop(query, cookie, raw_sets)
+        _save_session_shop(_merged_cookies(cookie, raw_sets))
     if back_to_picker:
         if minted:
             response_headers.append(("set-cookie", f"dyp_sid={sid}; Path=/; HttpOnly; SameSite=Lax"))
@@ -603,6 +701,8 @@ def build_proxy_response(
         response_headers.extend(_restore_login_headers(sid, raw_sets, cookie))
     if method != "HEAD" and payload and any(token in content_type.lower() for token in _TEXT_TYPES):
         text = payload.decode("utf-8", errors="replace")
+        if status == 200 and "json" in content_type.lower() and "redirect_url" in text:
+            _capture_login_body(text, _merged_cookies(forwarded_cookie, raw_sets), upstream_path)
         if "login_subject_list" in text:
             _remember_subjects(cookie, text, _copy_jars(sid), host, sid)
         if status == 200 and "account/center/getAccountList" in upstream_path:

@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/dashboard.css?v=14">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=1">
+    <link rel="stylesheet" href="/static/css/pages/center.css?v=8">
 </head>
 <body>
 <div class="layout">
@@ -22,6 +23,10 @@
             <a class="nav-item nav-sub" data-view="violations" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>
                 <span>违规与预警</span>
+            </a>
+            <a class="nav-item nav-sub" data-view="center" href="javascript:void(0)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-3"/></svg>
+                <span>数据总览</span>
             </a>
             <div class="nav-group-title">资金结算</div>
             <a class="nav-item nav-sub" data-view="fund-account" href="javascript:void(0)">
@@ -172,6 +177,121 @@
                     </div>
                 </div>
             </section>
+            <section class="view" id="view-center">
+                <div class="panel center-panel">
+                    <div class="center-toolbar">
+                        <button class="btn" id="btn-refresh-center" type="button">拉取最新数据</button>
+                        <select id="center-account">
+                            <option value="">全部账号</option>
+                        </select>
+                        <select id="center-shop">
+                            <option value="">全部店铺</option>
+                        </select>
+                        <select id="center-preset">
+                            <option value="realtime">实时</option>
+                            <option value="1">近1天</option>
+                            <option value="7">近7天</option>
+                            <option value="30">近30天</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                        <input id="center-start" type="date" disabled>
+                        <span class="center-date-sep">至</span>
+                        <input id="center-end" type="date" disabled>
+                        <button class="btn btn-primary" id="btn-center-query" type="button">查询</button>
+                    </div>
+                    <p class="form-hint center-note" id="center-range-note">默认实时。近 1 天、近 7 天、近 30 天截止到昨天。自定义只能选今天和前 90 天。</p>
+                    <div class="center-summary-box" id="center-summary-box">
+                        <p class="form-hint" id="center-schedule"></p>
+                        <p class="center-summary-line" id="center-summary"></p>
+                    </div>
+                    <div class="center-tabs">
+                        <button class="center-tab active" type="button" data-center-tab="overview">数据总览</button>
+                        <button class="center-tab" type="button" data-center-tab="home">店铺首页</button>
+                        <button class="center-tab" type="button" data-center-tab="shops">店铺明细</button>
+                        <button class="center-tab" type="button" data-center-tab="products">商品明细</button>
+                    </div>
+                    <div class="center-pane" id="center-pane-overview" data-center-pane="overview">
+                        <div id="center-progress" class="center-progress hidden">
+                            <div class="center-progress-row">
+                                <span class="center-spinner"></span>
+                                <span id="center-progress-text">正在拉取…</span>
+                            </div>
+                            <div class="enter-track center-track"><div id="center-bar"></div></div>
+                        </div>
+                        <div id="center-list" class="center-list"></div>
+                    </div>
+                    <div class="center-pane hidden" id="center-pane-home" data-center-pane="home">
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                <tr>
+                                    <th>店铺名称</th><th>登录</th><th>待支付</th><th>待发货</th><th>异常包裹</th>
+                                    <th>待处理售后</th><th>服务工单</th><th>待整改风险点</th><th>待处理违规</th>
+                                </tr>
+                                </thead>
+                                <tbody id="center-home-tbody">
+                                <tr><td colspan="9" class="empty">打开后加载</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="center-pane hidden" id="center-pane-shops" data-center-pane="shops">
+                        <div id="center-shops-progress" class="center-progress hidden">
+                            <div class="center-progress-row">
+                                <span class="center-spinner"></span>
+                                <span id="center-shops-progress-text">正在拉取…</span>
+                            </div>
+                            <div class="enter-track center-track"><div id="center-shops-bar"></div></div>
+                        </div>
+                        <p class="form-hint" id="center-shops-filter"></p>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                <tr>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="name" data-sort-label="店铺名称">店铺名称</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="login_status" data-sort-label="登录状态">登录状态</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="pay_amount" data-sort-label="成交金额">成交金额 ↓</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="order_count" data-sort-label="成交订单数">成交订单数</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="refund_rate" data-sort-label="退款率（支付时间）">退款率（支付时间）</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="refund_amount" data-sort-label="成交退款金额（支付时间）">成交退款金额（支付时间）</button></th>
+                                </tr>
+                                </thead>
+                                <tbody id="center-shops-tbody">
+                                <tr><td colspan="6" class="empty">打开后加载</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="center-pane hidden" id="center-pane-products" data-center-pane="products">
+                        <div id="center-products-progress" class="center-progress hidden">
+                            <div class="center-progress-row">
+                                <span class="center-spinner"></span>
+                                <span id="center-products-progress-text">正在拉取…</span>
+                            </div>
+                            <div class="enter-track center-track"><div id="center-products-bar"></div></div>
+                        </div>
+                        <p class="form-hint" id="center-products-filter"></p>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                <tr>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="product_name" data-sort-label="商品">商品</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="name" data-sort-label="店铺">店铺</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="pay_amount" data-sort-label="成交金额">成交金额 ↓</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="order_count" data-sort-label="成交订单数">成交订单数</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_rate" data-sort-label="退款率（支付时间）">退款率（支付时间）</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_amount" data-sort-label="成交退款金额（支付时间）">成交退款金额（支付时间）</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="good_rate" data-sort-label="评价好评率">评价好评率</button></th>
+                                </tr>
+                                </thead>
+                                <tbody id="center-products-tbody">
+                                <tr><td colspan="7" class="empty">打开后加载</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 </div>
@@ -231,11 +351,19 @@
         <div class="enter-track"><div id="violation-bar"></div></div>
     </div>
 </div>
+<div id="center-mask" class="mask hidden">
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="center-mask-title">
+        <h2 id="center-mask-title">正在拉取收支概况</h2>
+        <p id="center-mask-text" class="form-hint">正在拉取…</p>
+        <div class="enter-track"><div id="center-bar"></div></div>
+    </div>
+</div>
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
-<script src="/static/js/dashboard/core.js?v=9"></script>
+<script src="/static/js/dashboard/core.js?v=11"></script>
 <script src="/static/js/dashboard/stores.js?v=7"></script>
 <script src="/static/js/dashboard/accounts.js?v=6"></script>
-<script src="/static/js/dashboard/violations.js?v=13"></script>
+<script src="/static/js/dashboard/violations.js?v=16"></script>
+<script src="/static/js/dashboard/center.js?v=16"></script>
 </body>
 </html>

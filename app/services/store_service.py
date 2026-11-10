@@ -11,12 +11,14 @@ from app.db.session import SessionLocal
 from app.models.shop import Shop
 from app.services.dy_client import (
     FXG_HOST,
+    SSO_HOST,
     ShopApiError,
     ShopAuthError,
     as_store,
     cookie_store,
     cookies_for,
     dump_cookie_store,
+    switch_subject,
     touch_session,
 )
 from app.services.schedule_log import write_fail, write_success
@@ -54,7 +56,8 @@ def save_subjects(
     owner_account: str = "",
 ) -> int:
     """把一次登录拉到的全部工作台写入数据库。凭证按域名分开存。"""
-    blob = dump_cookie_store(as_store(cookies))
+    incoming = as_store(cookies)
+    blob = dump_cookie_store(incoming)
     saved = 0
     for item in subjects:
         if not isinstance(item, dict) or not item.get("can_login", True):
@@ -75,6 +78,8 @@ def save_subjects(
         shop.operate_status = status[:20]
         if replace_cookies or not shop.cookie_data:
             shop.cookie_data = blob
+        else:
+            _merge_passport(shop, incoming)
         shop.login_status = "online"
         shop.session_key = session_key[:64]
         if owner_account:
@@ -146,6 +151,66 @@ def enter_progress(db: Session) -> dict[str, int]:
     return {"done": int(done), "total": int(total)}
 
 
+def _merge_passport(shop: Shop, incoming: dict[str, dict[str, str]]) -> None:
+    """补上通行证，不盖掉这家店已经单独保存的主站会话。通行证大约能用 60 天。"""
+    store = cookie_store(shop.cookie_data)
+    for host, jar in incoming.items():
+        if host == FXG_HOST:
+            continue
+        slot = store.setdefault(host, {})
+        slot.update({key: value for key, value in jar.items() if key and value})
+    if store:
+        shop.cookie_data = dump_cookie_store(store)
+
+
+def merge_shop_cookies(shop: Shop, cookies: dict[str, str]) -> None:
+    """只更新这家店的主站凭证。通行证留着，用来在主站会话过期后重新进店。"""
+    if not cookies:
+        return
+    store = cookie_store(shop.cookie_data)
+    slot = store.setdefault(FXG_HOST, {})
+    slot.update({key: value for key, value in cookies.items() if key and value})
+    shop.cookie_data = dump_cookie_store(store)
+    shop.login_status = "online"
+    shop.shop_cookie = 1
+
+
+def _passport_store(db: Session, shop: Shop) -> dict[str, dict[str, str]]:
+    """这家店没有通行证时，借用同一个邮箱下其他店保存的那份。"""
+    store = cookie_store(shop.cookie_data)
+    if store.get(SSO_HOST):
+        return store
+    owner = (shop.owner_account or "").strip()
+    if not owner:
+        return store
+    others = db.scalars(select(Shop).where(Shop.owner_account == owner, Shop.id != shop.id))
+    for other in others:
+        sso = cookie_store(other.cookie_data).get(SSO_HOST)
+        if sso:
+            store[SSO_HOST] = dict(sso)
+            return store
+    return store
+
+
+def revive_shop(db: Session, shop: Shop) -> bool:
+    """主站会话失效后，用通行证重新进入这家店。成功则保持在线。"""
+    if not shop.subject_id or not shop.member_id:
+        return False
+    store = _passport_store(db, shop)
+    if not store.get(SSO_HOST) and not store.get(FXG_HOST):
+        return False
+    try:
+        fresh = switch_subject(store, shop.subject_id, shop.member_id)
+        touch_session(cookies_for(fresh, FXG_HOST))
+    except (ShopAuthError, ShopApiError) as exc:
+        _LOG.info("重新进入 %s 没有成功：%s", shop.name, exc)
+        return False
+    shop.cookie_data = dump_cookie_store(fresh)
+    shop.login_status = "online"
+    shop.shop_cookie = 1
+    return True
+
+
 def save_entered_cookies(member_id: str, cookies: dict[str, str]) -> None:
     """进店回调带有这家店的成员编号。凭证按这家店单独保存，不再等货款接口。"""
     member_id = (member_id or "").strip()[:32]
@@ -157,11 +222,8 @@ def save_entered_cookies(member_id: str, cookies: dict[str, str]) -> None:
         if not shops:
             _LOG.info("进店回调没有对上店铺")
             return
-        blob = dump_cookie_store({FXG_HOST: cookies})
         for shop in shops:
-            shop.cookie_data = blob
-            shop.login_status = "online"
-            shop.shop_cookie = 1
+            merge_shop_cookies(shop, cookies)
         db.commit()
         _LOG.info("已保存店铺登录凭证 %s 家", len(shops))
     finally:
@@ -219,6 +281,9 @@ def renew_cookies() -> int:
             try:
                 touch_session(cookies)
             except ShopAuthError as exc:
+                if revive_shop(db, shop):
+                    updated += 1
+                    continue
                 failed += 1
                 shop.login_status = "offline"
                 write_fail(f"登录凭证维护 {shop.name}", str(exc) or "会话已失效")

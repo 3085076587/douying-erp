@@ -15,6 +15,11 @@ _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+_CLIENT = httpx.Client(
+    limits=httpx.Limits(max_connections=40, max_keepalive_connections=20),
+    timeout=30,
+    follow_redirects=False,
+)
 
 
 class ShopAuthError(Exception):
@@ -87,7 +92,7 @@ def request_shop(
     }
     url = host + path if path.startswith("/") else path
     try:
-        response = httpx.request(
+        response = _CLIENT.request(
             method,
             url,
             params=params,
@@ -95,8 +100,6 @@ def request_shop(
             json=json_body,
             cookies=_cookies(cookies),
             headers=headers,
-            timeout=30,
-            follow_redirects=False,
         )
     except httpx.HTTPError as exc:
         raise ShopApiError("抖店暂时连不上") from exc
@@ -144,6 +147,86 @@ def touch_session(cookies: dict[str, str]) -> None:
         "/ecomauth/loginv1/session_check",
         params={"login_source": "doudian_pc_web", "bus_type": "1"},
     )
+
+
+def enter_listed_shop(
+    cookies: dict[str, str],
+    shop_id: str,
+    *,
+    host: str,
+    login_source: str,
+) -> dict[str, str]:
+    """选店会话还在、但还没进到这家店时，用名单里的成员编号进入。"""
+    headers = {
+        "User-Agent": _UA,
+        "Referer": f"https://{host}/",
+        "Accept": "application/json, text/plain, */*",
+    }
+    jar = dict(cookies)
+    try:
+        listed = httpx.get(
+            f"https://{host}/ecomauth/loginv1/get_login_subject",
+            params={"bus_type": "1", "login_source": login_source, "entry_source": "0", "bus_child_type": "0"},
+            cookies=_cookies(jar),
+            headers=headers,
+            timeout=30,
+            follow_redirects=False,
+        )
+    except httpx.HTTPError as exc:
+        raise ShopApiError("暂时连不上店铺名单") from exc
+    jar = absorb_cookies(jar, listed)
+    try:
+        payload = listed.json()
+    except json.JSONDecodeError as exc:
+        raise ShopApiError("店铺名单无法识别") from exc
+    data = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else {}
+    rows = data.get("login_subject_list") if isinstance(data.get("login_subject_list"), list) else []
+    target = next(
+        (row for row in rows if isinstance(row, dict) and str(row.get("account_id") or "") == str(shop_id)),
+        None,
+    )
+    if not isinstance(target, dict):
+        raise ShopApiError("登录名单里没有这家店")
+    if target.get("can_login") is False:
+        raise ShopApiError("这家店现在不能进入")
+    encode_member_id = str(target.get("encode_member_id") or "")
+    if not encode_member_id:
+        raise ShopApiError("这家店缺少进店凭证")
+    try:
+        callback = httpx.get(
+            f"https://{host}/ecomauth/loginv1/callback",
+            params={
+                "subject_aid": "4966",
+                "login_source": login_source,
+                "action_type": "1",
+                "encode_member_id": encode_member_id,
+            },
+            cookies=_cookies(jar),
+            headers=headers,
+            timeout=30,
+            follow_redirects=False,
+        )
+    except httpx.HTTPError as exc:
+        raise ShopApiError("进入店铺没有成功") from exc
+    jar = absorb_cookies(jar, callback)
+    try:
+        body = callback.json()
+    except json.JSONDecodeError as exc:
+        raise ShopApiError("进入店铺没有成功") from exc
+    code = body.get("code", body.get("st", 0)) if isinstance(body, dict) else -1
+    try:
+        code_no = int(code or 0)
+    except (TypeError, ValueError):
+        code_no = -1
+    message = str(body.get("msg") or body.get("message") or "") if isinstance(body, dict) else ""
+    if code_no not in {0}:
+        text = (message or "进入店铺没有成功")[:200]
+        if code_no in {401, 10001, 10008} or "登录" in text:
+            raise ShopAuthError(text)
+        raise ShopApiError(text)
+    cookies.clear()
+    cookies.update(jar)
+    return cookies
 
 
 def session_alive(cookies: dict[str, str]) -> bool:

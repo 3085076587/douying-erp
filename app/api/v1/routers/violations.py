@@ -73,7 +73,9 @@ def list_violations(
     status: str = Query(default=""),
     start_date: str = Query(default="", max_length=10),
     end_date: str = Query(default="", max_length=10),
+    violation_ids: str = Query(default="", description="指定违规编号，逗号分隔。传入时只返回这些单"),
 ) -> ViolationList:
+    picked_ids = [part.strip() for part in violation_ids.split(",") if part.strip()] if violation_ids else None
     rows = violation_service.list_violations(
         db,
         store_pk=store_pk,
@@ -84,6 +86,7 @@ def list_violations(
         status=status,
         start_date=start_date,
         end_date=end_date,
+        violation_ids=picked_ids,
     )
     items = [ViolationRow.model_validate(row) for row in rows]
     return ViolationList(items=items, total=len(items))
@@ -95,6 +98,7 @@ def _progress_payload() -> ViolationProgress:
     state = violation_service.read_state()
     data["last_update"] = str(state.get("last_update") or "")
     data["interval_minutes"] = violation_service.schedule_minutes()
+    data["next_update"] = violation_service.next_update_text(data["last_update"])
     return ViolationProgress.model_validate(data)
 
 

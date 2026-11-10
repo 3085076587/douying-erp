@@ -188,3 +188,36 @@ def fetch_violation_list(
         page += 1
         time.sleep(3)
     return rows, total
+
+
+def fetch_appeal_ticket_ids(cookies: dict[str, str]) -> list[str]:
+    """首页「待处理违规」对应还能申诉的违规单编号。"""
+    body = {
+        "condition": {"quick_condition": "can_appeal"},
+        "sort": {"sort_type": 1, "sort_params": "create_time"},
+        "request_env": {},
+        "bucket_id": "",
+        "page_tab": "",
+        "page": 0,
+        "page_size": 50,
+    }
+    ids: list[str] = []
+    seen: set[str] = set()
+    for page in range(3):
+        body["page"] = page
+        data = request_shop(cookies, "POST", PENALTY_LIST_PATH, json_body=body)
+        tickets = data.get("tickets") if isinstance(data.get("tickets"), list) else []
+        for item in tickets:
+            if not isinstance(item, dict):
+                continue
+            ticket_id = str(item.get("ticket_id") or "").strip()
+            if ticket_id and ticket_id not in seen:
+                seen.add(ticket_id)
+                ids.append(ticket_id)
+        try:
+            total = int(data.get("total") or 0)
+        except (TypeError, ValueError):
+            total = 0
+        if not tickets or len(tickets) < 50 or len(ids) >= total:
+            break
+    return ids
