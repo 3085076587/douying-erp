@@ -1,7 +1,7 @@
 """v1 路由聚合。"""
 from fastapi import APIRouter
 
-from app.api.v1.routers import auth, center, funds, health, stores, violations
+from app.api.v1.routers import accounts, auth, center, funds, health, stores, violations
 
 api_router = APIRouter()
 api_router.include_router(health.router)

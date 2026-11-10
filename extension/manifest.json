@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "抖店账号导入",
+  "version": "1.0.0",
+  "description": "在抖店官网登录后，把这一次登录凭证交给 ERP。",
+  "permissions": ["cookies", "storage", "scripting", "alarms"],
+  "host_permissions": [
+    "*://*.jinritemai.com/*",
+    "*://*.douyin.com/*",
+    "*://*.bytedance.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://127.0.0.1:8002/*",
+    "http://localhost:8002/*",
+    "http://120.76.58.132:8082/*"
+  ],
+  "action": {
+    "default_title": "添加账号",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
