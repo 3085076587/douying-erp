@@ -23,3 +23,5 @@ class AccountImportResult(BaseModel):
     account: str
     shop_count: int
     cookie_count: int
+    action: str = ""
+    shop_name: str = ""

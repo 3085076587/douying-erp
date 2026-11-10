@@ -27,64 +27,88 @@ function readPicker() {
     localStorageData[key] = localStorage.getItem(key) || "";
   }
   const email = (text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) || [""])[0];
+  const notFound = text.indexOf("请选择店铺") < 0 && /404|页面不存在|找不到页面/.test(text);
+  const skip = {
+    子账号: 1,
+    个体店: 1,
+    企业店: 1,
+    正常营业: 1,
+    抖音工作室: 1,
+    请选择店铺: 1,
+    选择店铺: 1,
+    返回: 1,
+  };
   const shops = [];
   const seen = {};
-  document.querySelectorAll("div,span,p,a,li").forEach(function (el) {
-    if (el.children.length) return;
-    const name = (el.innerText || "").replace(/\s+/g, "");
-    if (name.length < 2 || name.length > 30 || seen[name]) return;
+  document.querySelectorAll("div,span,p").forEach(function (el) {
+    if ((el.innerText || "").replace(/\s+/g, "") !== "子账号") return;
     let card = el;
-    let blob = "";
-    for (let i = 0; i < 8 && card; i += 1) {
-      blob = card.innerText || "";
-      if (blob.indexOf("子账号") >= 0 || blob.indexOf("正常营业") >= 0) break;
+    let tight = null;
+    for (let i = 0; i < 6 && card; i += 1) {
+      const blob = (card.innerText || "").trim();
+      if (blob.length > 160) break;
+      if (blob.indexOf("子账号") >= 0) tight = card;
       card = card.parentElement;
     }
-    if (blob.indexOf("子账号") < 0 && blob.indexOf("正常营业") < 0) return;
-    seen[name] = 1;
-    shops.push(name);
+    if (!tight) return;
+    const lines = (tight.innerText || "").split(/\n+/);
+    for (let i = 0; i < lines.length; i += 1) {
+      const name = lines[i].replace(/\s+/g, "");
+      if (name.length < 2 || name.length > 30 || skip[name] || seen[name]) continue;
+      if (name.indexOf("子账号") >= 0) continue;
+      seen[name] = 1;
+      shops.push(name);
+      break;
+    }
   });
   return {
     picker: picker,
     captcha: captcha,
+    notFound: notFound,
     account: email,
     shops: shops,
     local_storage: localStorageData,
     ua: navigator.userAgent,
+    shop_id: (function () {
+      const fromUrl = ((location.href || "").match(/[?&](?:shop_id|shopId)=(\d{4,20})/) || [])[1] || "";
+      if (fromUrl) return fromUrl;
+      const keys = Object.keys(localStorageData);
+      for (let i = 0; i < keys.length; i += 1) {
+        const value = localStorageData[keys[i]] || "";
+        if (/shop_?id/i.test(keys[i]) && /^\d{4,20}$/.test(value)) return value;
+        const matched = String(value).match(/"shop_?id"\s*:\s*"?(\d{4,20})/i);
+        if (matched) return matched[1];
+      }
+      return "";
+    })(),
   };
 }
 
 function clickShop(name) {
   const want = (name || "").replace(/\s+/g, "");
-  const nodes = document.querySelectorAll("div,span,p,a,li,button");
-  let hit = null;
-  let area = 1e15;
+  const nodes = document.querySelectorAll("div,span,p");
   for (let i = 0; i < nodes.length; i += 1) {
     const el = nodes[i];
-    if ((el.textContent || "").replace(/\s+/g, "") !== want) continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) continue;
-    const size = rect.width * rect.height;
-    if (size < area) {
-      hit = el;
-      area = size;
+    if (el.children.length) continue;
+    if ((el.innerText || "").replace(/\s+/g, "") !== want) continue;
+    let card = el;
+    let target = null;
+    for (let depth = 0; depth < 6 && card; depth += 1) {
+      const blob = (card.innerText || "").trim();
+      if (blob.length > 160) break;
+      if (blob.indexOf("子账号") >= 0) target = card;
+      card = card.parentElement;
     }
+    if (!target) continue;
+    try {
+      target.scrollIntoView({ block: "center", inline: "nearest" });
+    } catch (err) {
+      /* 页面滚不到也不影响点击 */
+    }
+    target.click();
+    return true;
   }
-  if (!hit) return false;
-  try {
-    hit.scrollIntoView({ block: "center", inline: "nearest" });
-  } catch (err) {
-    /* 页面滚不到也不影响点击 */
-  }
-  let card = hit;
-  for (let i = 0; i < 6 && card; i += 1) {
-    card.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window, button: 0 }));
-    card.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window, button: 0 }));
-    card.click();
-    if ((card.innerText || "").length > 80) break;
-    card = card.parentElement;
-  }
-  return true;
+  return false;
 }
 
 function pageBack() {
@@ -129,8 +153,18 @@ function cookiePayload(cookies) {
   });
 }
 
+function shopIdFromCookies(cookies) {
+  const names = { ecom_gray_shop_id: 1, SHOP_ID: 1, shop_id: 1 };
+  for (let i = 0; i < cookies.length; i += 1) {
+    const item = cookies[i];
+    if (names[item.name] && /^\d{4,20}$/.test(item.value || "")) return item.value;
+  }
+  return "";
+}
+
 async function upload(apiBase, token, page, shopName) {
   const cookies = await chrome.cookies.getAll({ domain: ".jinritemai.com" });
+  const shopId = (page && page.shop_id) || shopIdFromCookies(cookies);
   const response = await fetch(apiBase + "/api/v1/accounts/import", {
     method: "POST",
     headers: {
@@ -139,7 +173,7 @@ async function upload(apiBase, token, page, shopName) {
     },
     body: JSON.stringify({
       account: page.account || "",
-      shops: [{ name: shopName }],
+      shops: [{ name: shopName, shop_id: shopId }],
       cookies: cookiePayload(cookies),
       local_storage: page.local_storage || {},
       ua: page.ua || "",
@@ -161,7 +195,7 @@ async function waitForLeave(tabId) {
     } catch (err) {
       continue;
     }
-    if (page.captcha) return page;
+    if (page.captcha || page.notFound) return page;
     if (!page.picker) return page;
   }
   return null;
@@ -199,7 +233,11 @@ async function captureAll(apiBase, token) {
       job = { state: "done", detail: "这个页面上没有店铺" };
       return job.detail;
     }
+    job.detail = "找到 " + names.length + " 家店铺";
     let saved = 0;
+    let updated = 0;
+    let created = 0;
+    let skipped = 0;
     for (let index = 0; index < names.length; index += 1) {
       const name = names[index];
       job.detail = "正在进入" + name + "（" + (index + 1) + "/" + names.length + "）";
@@ -221,16 +259,36 @@ async function captureAll(apiBase, token) {
         job = { state: "done", detail: "出现验证码了，请你自己通过后再点获取凭证" };
         return job.detail;
       }
+      if (entered.notFound) {
+        await chrome.scripting.executeScript({ target: { tabId: tabId }, func: pageBack });
+        const back = await waitForPicker(tabId);
+        if (!back) {
+          job = { state: "done", detail: "打开了错误页面，请回到选择店铺后再获取" };
+          return job.detail;
+        }
+        job.detail = "没点开" + name;
+        continue;
+      }
       await sleep(1000);
       const page = await inspect(tabId);
+      let data;
       try {
-        await upload(apiBase, token, page, name);
+        data = await upload(apiBase, token, page, name);
       } catch (err) {
         job = { state: "done", detail: "上传失败 " + (err && err.message ? err.message : "") };
         return job.detail;
       }
       saved += 1;
-      job.detail = "已获取 " + saved + "/" + names.length;
+      if (data && data.action === "create") {
+        created += 1;
+        job.detail = "已新建 " + name;
+      } else if (data && data.action === "skip") {
+        skipped += 1;
+        job.detail = "没有对上 " + name;
+      } else {
+        updated += 1;
+        job.detail = "已更新 " + name;
+      }
       if (index === names.length - 1) break;
       await chrome.scripting.executeScript({ target: { tabId: tabId }, func: pageBack });
       const back = await waitForPicker(tabId);
@@ -239,7 +297,10 @@ async function captureAll(apiBase, token) {
         return job.detail;
       }
     }
-    job = { state: "done", detail: "已获取 " + saved + " 家店铺" };
+    job = {
+      state: "done",
+      detail: "更新 " + updated + " 家，新建 " + created + " 家" + (skipped ? "，没对上 " + skipped + " 家" : ""),
+    };
     return job.detail;
   } catch (err) {
     job = { state: "done", detail: "获取失败" };

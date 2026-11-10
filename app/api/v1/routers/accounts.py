@@ -17,10 +17,12 @@ def import_account(
     _user=Depends(get_current_user),
 ) -> AccountImportResult:
     """收下账号、店铺列表、cookie、本地存储和浏览器标识。不回传这些内容。"""
-    row = save_import(db, body)
+    row, action, shop_name = save_import(db, body)
     return AccountImportResult(
         id=row.id,
         account=row.account,
         shop_count=len(body.shops),
         cookie_count=len(body.cookies),
+        action=action,
+        shop_name=shop_name,
     )
