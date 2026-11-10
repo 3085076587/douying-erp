@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "抖店账号导入",
-  "version": "1.0.3",
+  "version": "1.0.6",
   "description": "在抖店官网登录后，把这一次登录凭证交给 ERP。",
   "permissions": ["cookies", "storage", "scripting", "alarms"],
   "host_permissions": [
