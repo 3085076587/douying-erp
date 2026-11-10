@@ -191,6 +191,21 @@
         });
     }
 
+    function productKeyword() {
+        var input = el("center-product-q");
+        return input ? input.value.trim().toLowerCase() : "";
+    }
+
+    function matchProductSearch(items) {
+        var keyword = productKeyword();
+        if (!keyword) return items;
+        return items.filter(function (item) {
+            var name = String(item.product_name || "").toLowerCase();
+            var id = String(item.product_id || "").toLowerCase();
+            return name.indexOf(keyword) >= 0 || id.indexOf(keyword) >= 0;
+        });
+    }
+
     function ratioClass(text) {
         if (!text) return "";
         if (text.charAt(0) === "-") return "down";
@@ -581,15 +596,20 @@
     function paintProducts() {
         if (!productData) return;
         var body = el("center-products-tbody");
-        var items = sortedCopy(visibleItems(productData.items || []), productSort);
+        var scoped = visibleItems(productData.items || []);
+        var items = sortedCopy(matchProductSearch(scoped), productSort);
         paintSortMarks();
         paintHeadSummary(items);
         if (!(productData.items && productData.items.length)) {
             body.innerHTML = '<tr><td colspan="7" class="empty">还没有商品</td></tr>';
             return;
         }
-        if (!items.length) {
+        if (!scoped.length) {
             body.innerHTML = '<tr><td colspan="7" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            return;
+        }
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="7" class="empty">没有符合搜索的商品</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (item) {
@@ -810,6 +830,9 @@
             if (latest) paint(latest);
             paintHome();
             if (shopData) paintShops();
+            if (productData) paintProducts();
+        });
+        el("center-product-q").addEventListener("input", function () {
             if (productData) paintProducts();
         });
         el("btn-refresh-center").addEventListener("click", function () {

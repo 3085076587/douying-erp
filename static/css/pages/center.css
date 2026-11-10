@@ -85,6 +85,29 @@
 
 .center-pane { padding-top: 14px; }
 .center-pane .form-hint { margin-top: 0; }
+.center-product-search {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.center-product-search .form-hint { margin: 0; }
+.center-product-search input {
+    height: 32px;
+    width: 220px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font-size: 13px;
+}
+.center-product-search input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(196, 92, 38, 0.12);
+}
 
 .center-list {
     display: flex;

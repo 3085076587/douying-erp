@@ -108,6 +108,14 @@ _PAGE_BOOT = (
     "var next=mapUrl(node.href);if(next===node.href)return;ev.preventDefault();location.assign(next);},true);"
     "var rawOpen=window.open;if(rawOpen){window.open=function(url){"
     "if(typeof url==='string')arguments[0]=mapUrl(url);return rawOpen.apply(window,arguments);};}"
+    "try{var topWin=window.top;if(topWin&&topWin!==window&&!topWin.__dypTopHref){"
+    "var parentDesc=Object.getOwnPropertyDescriptor(topWin.Location.prototype,'href');"
+    "if(parentDesc&&parentDesc.set&&parentDesc.configurable){topWin.__dypTopHref=1;"
+    "Object.defineProperty(topWin.Location.prototype,'href',{configurable:true,enumerable:parentDesc.enumerable,get:parentDesc.get,"
+    "set:function(v){var raw=String(v),next=mapUrl(raw);"
+    "if(this===topWin.location&&next!==raw){var frame=topWin.document.getElementById('login-frame');"
+    "if(frame&&frame.contentWindow){frame.contentWindow.location.href=next;return;}}"
+    "return parentDesc.set.call(this,next);}});}}}catch(e){}"
     "})();</script>"
 )
 _EMAIL_BOOT = (
@@ -207,6 +215,12 @@ def rewrite_text(text: str, origin: str) -> str:
     """抖店主站保持原路径，别的域名放到 /dyp 下面。页面只认 /login/common 这种路径。"""
 
     def mapped(host: str, rest: str) -> str:
+        path = rest or "/"
+        # 安全验证成功后要回跳。回跳地址必须是带字母域名的官网地址，IP 会被页面判成非法然后什么都不显示。
+        if host.lower().split(":")[0] == _FLAT_HOST and (
+            path == "/login/common" or path.startswith("/login/common?") or path.startswith("/login/common#")
+        ):
+            return f"https://{_FLAT_HOST}{path}"
         if host.lower() == _FLAT_HOST:
             return f"{origin}{rest or '/'}"
         return f"{origin}{_MOUNT}/{host}{rest}"
@@ -726,6 +740,8 @@ def build_proxy_response(
             )
         # 通行证回跳地址改成本地会被页面丢掉。进店后的跳转地址要留在本站，否则嵌套框会跨域。
         keep_official = "passport" in upstream_path.lower()
+        if is_json and keep_official and origin:
+            text = text.replace(origin, f"https://{_FLAT_HOST}")
         if not is_json or not keep_official:
             text = rewrite_text(text, origin)
         payload = text.encode("utf-8")
