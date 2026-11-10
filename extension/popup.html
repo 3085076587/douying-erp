@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>添加账号</title>
+  <title>获取凭证</title>
   <style>
     body { width: 280px; margin: 0; padding: 12px; font: 13px/1.4 "Microsoft YaHei", sans-serif; color: #1f2329; }
     label { display: block; margin: 8px 0 4px; color: #646a73; }
@@ -10,14 +10,18 @@
     button { width: 100%; margin-top: 12px; padding: 8px; border: 0; border-radius: 4px; background: #1677ff; color: #fff; cursor: pointer; }
     button:disabled { background: #b7c3d0; }
     p { min-height: 18px; margin: 8px 0 0; color: #646a73; }
+    a { color: #1677ff; cursor: pointer; }
   </style>
 </head>
 <body>
-  <label for="base">服务器</label>
-  <input id="base" value="http://127.0.0.1:8002">
-  <label for="token">后台令牌</label>
-  <input id="token" type="password" autocomplete="off">
-  <button id="add" type="button">添加账号</button>
+  <div id="login-box">
+    <label for="username">账号</label>
+    <input id="username" autocomplete="username">
+    <label for="password">密码</label>
+    <input id="password" type="password" autocomplete="current-password">
+  </div>
+  <p id="logged" hidden>已登录 <a id="switch">换账号</a></p>
+  <button id="add" type="button">获取凭证</button>
   <p id="status"></p>
   <script src="popup.js"></script>
 </body>
