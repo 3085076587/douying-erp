@@ -158,6 +158,7 @@ th.sortable.sort-desc::after { content: " ↓"; }
 
 .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
 .tag-ok { background: #dcfce7; color: var(--success); }
+.tag-wait { background: #ffedd5; color: #c2410c; }
 .tag-bad { background: #fee2e2; color: var(--danger); }
 
 .mask {

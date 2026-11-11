@@ -139,10 +139,3 @@ button.addEventListener("click", async function () {
   show(detail);
   button.disabled = false;
 });
-
-setInterval(function () {
-  chrome.runtime.sendMessage({ type: "status" }, function (result) {
-    if (chrome.runtime.lastError || !result || !result.detail) return;
-    show(result.detail);
-  });
-}, 1000);

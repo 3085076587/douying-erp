@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -82,6 +83,7 @@ def save_subjects(
             _merge_passport(shop, incoming)
         shop.login_status = "online"
         shop.session_key = session_key[:64]
+        shop.credential_at = datetime.now()
         if owner_account:
             shop.owner_account = owner_account[:100]
         saved += 1
@@ -101,6 +103,22 @@ def note_embed_login(saved: int) -> None:
 def login_sync_state() -> dict[str, int]:
     with _LOGIN_SYNC:
         return {"mark": _LOGIN_MARK["mark"], "total": _LOGIN_MARK["total"]}
+
+
+def ensure_credential_at_column() -> None:
+    """老库补上凭证写入时间。只在导入登录凭证时更新，用来算 48 小时后该重新登录。"""
+    from sqlalchemy import inspect, text
+
+    from app.db.session import engine
+
+    try:
+        names = {col["name"] for col in inspect(engine).get_columns("dy_shop")}
+    except Exception:
+        return
+    if "credential_at" in names:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dy_shop ADD COLUMN credential_at DATETIME NULL"))
 
 
 def ensure_owner_account_column() -> None:
@@ -242,6 +260,7 @@ def list_shop_rows(db: Session) -> list[dict]:
             "operate_status": shop.operate_status,
             "legal_person": shop.legal_person,
             "login_status": shop.login_status,
+            "credential_at": shop.credential_at.strftime("%Y-%m-%d %H:%M:%S") if shop.credential_at else "",
             "owner_account": shop.owner_account or "",
             "shop_cookie": int(shop.shop_cookie or 0),
             "opened_on": shop.opened_on,

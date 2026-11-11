@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -31,11 +32,15 @@ def _shop_name(body: AccountImportIn) -> str:
     return ""
 
 
-def _shop_id(body: AccountImportIn) -> str:
+def _listed_shop_id(body: AccountImportIn) -> str:
     for item in body.shops:
         shop_id = str(item.get("shop_id") or "").strip()
         if shop_id.isdigit():
             return shop_id[:32]
+    return ""
+
+
+def _cookie_shop_id(body: AccountImportIn) -> str:
     for item in body.cookies:
         if str(item.get("name") or "") in _SHOP_ID_COOKIES and str(item.get("value") or "").isdigit():
             return str(item["value"])[:32]
@@ -61,19 +66,35 @@ def _cookie_store(body: AccountImportIn) -> dict[str, dict[str, str]]:
     return store
 
 
-def _find_shop(db: Session, shop_id: str, name: str) -> tuple[Shop | None, str]:
-    if shop_id:
-        found = db.scalar(select(Shop).where(Shop.shop_id == shop_id))
-        if found is not None:
-            return found, "update"
-    if not name:
-        return None, "create" if shop_id else "skip"
-    matches = [shop for shop in db.scalars(select(Shop)) if _compact(shop.name) == name]
-    if len(matches) == 1:
-        return matches[0], "update"
-    if len(matches) > 1:
-        return None, "skip"
-    return None, "create" if shop_id else "skip"
+def _by_id(db: Session, shop_id: str) -> Shop | None:
+    if not shop_id:
+        return None
+    return db.scalar(select(Shop).where(Shop.shop_id == shop_id))
+
+
+def _same_shop(shop: Shop, name: str) -> bool:
+    existing = _compact(shop.name)
+    if not existing or not name:
+        return True
+    return existing == name
+
+
+def _find_shop(db: Session, listed_id: str, cookie_id: str, name: str) -> tuple[Shop | None, str, str]:
+    """ID 对上但店名是另一家时，不能拿这次登录去覆盖那一家。"""
+    for shop_id in (listed_id, cookie_id):
+        found = _by_id(db, shop_id)
+        if found is not None and _same_shop(found, name):
+            return found, "update", found.shop_id or shop_id
+    if name:
+        matches = [shop for shop in db.scalars(select(Shop)) if _compact(shop.name) == name]
+        if len(matches) == 1:
+            return matches[0], "update", matches[0].shop_id or ""
+        if len(matches) > 1:
+            return None, "skip", ""
+    for shop_id in (listed_id, cookie_id):
+        if shop_id and _by_id(db, shop_id) is None:
+            return None, "create", shop_id
+    return None, "skip", ""
 
 
 def _find_import(db: Session, name: str, shop_id: str) -> AccountImport | None:
@@ -102,6 +123,7 @@ def _apply_shop(shop: Shop, body: AccountImportIn, store: dict[str, dict[str, st
     shop.cookie_data = dump_cookie_store(store)
     shop.login_status = "online"
     shop.shop_cookie = 1
+    shop.credential_at = datetime.now()
     if name and not _compact(shop.name):
         shop.name = name
     if body.account:
@@ -111,19 +133,26 @@ def _apply_shop(shop: Shop, body: AccountImportIn, store: dict[str, dict[str, st
 def save_import(db: Session, body: AccountImportIn) -> tuple[AccountImport, str, str]:
     names = sorted({str(item.get("name")) for item in body.cookies if item.get("name")})
     name = _shop_name(body)
-    shop_id = _shop_id(body)
+    listed_id = _listed_shop_id(body)
+    cookie_id = _cookie_shop_id(body)
     store = _cookie_store(body)
-    shops_json = json.dumps(
-        [{"name": name, "shop_id": shop_id}] if name or shop_id else body.shops,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    shop, action = _find_shop(db, shop_id, name)
+    shop, action, shop_id = _find_shop(db, listed_id, cookie_id, name)
     if action == "create":
         shop = Shop(shop_id=shop_id, name=name or shop_id)
         db.add(shop)
     if shop is not None and action in {"update", "create"}:
         _apply_shop(shop, body, store, name)
+        if not (shop.shop_id or "").strip():
+            for candidate in (listed_id, cookie_id):
+                if candidate and _by_id(db, candidate) is None:
+                    shop.shop_id = candidate
+                    shop_id = candidate
+                    break
+    shops_json = json.dumps(
+        [{"name": name, "shop_id": shop_id}] if name or shop_id else body.shops,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     row = _find_import(db, name, shop_id)
     if row is None:
         row = AccountImport(account="", shops_json="[]", cookies_json="[]")

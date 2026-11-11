@@ -22,6 +22,7 @@ from app.services.center_service import center_schedule, load_center_cache, run_
 from app.services.home_service import next_home_wait, refresh_home
 from app.services.account_service import refresh_saved_accounts
 from app.services.store_service import (
+    ensure_credential_at_column,
     ensure_owner_account_column,
     ensure_shop_cookie_column,
     renew_cookies,
@@ -200,6 +201,7 @@ async def lifespan(_: FastAPI):
         Base.metadata.create_all(bind=engine)
         ensure_shop_cookie_column()
         ensure_owner_account_column()
+        ensure_credential_at_column()
         db = SessionLocal()
         try:
             ensure_admin(db)

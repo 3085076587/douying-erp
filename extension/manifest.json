@@ -1,23 +1,27 @@
 {
   "manifest_version": 3,
   "name": "抖店账号导入",
-  "version": "1.0.6",
-  "description": "在抖店官网登录后，把这一次登录凭证交给 ERP。",
-  "permissions": ["cookies", "storage", "scripting", "alarms"],
+  "version": "2.3.10",
+  "description": "在抖店官网登录后，把这个账号下每家店铺的登录态交给 ERP。",
+  "permissions": ["cookies", "storage", "scripting", "debugger"],
   "host_permissions": [
     "*://*.jinritemai.com/*",
     "*://*.douyin.com/*",
-    "*://*.bytedance.com/*"
-  ],
-  "optional_host_permissions": [
+    "*://*.bytedance.com/*",
+    "http://120.76.58.132:8082/*",
     "http://127.0.0.1:8002/*",
-    "http://localhost:8002/*",
-    "http://120.76.58.132:8082/*"
+    "http://localhost:8002/*"
   ],
   "action": {
-    "default_title": "添加账号",
-    "default_popup": "popup.html"
+    "default_title": "获取凭证"
   },
+  "content_scripts": [
+    {
+      "matches": ["*://*.jinritemai.com/*"],
+      "js": ["panel.js"],
+      "run_at": "document_start"
+    }
+  ],
   "background": {
     "service_worker": "background.js"
   }

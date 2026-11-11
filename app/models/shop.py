@@ -1,4 +1,6 @@
-from sqlalchemy import Index, SmallInteger, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, Index, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -28,5 +30,6 @@ class Shop(Base, TimestampMixin):
     cookie_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     shop_cookie: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, server_default="0")
     login_status: Mapped[str] = mapped_column(String(20), nullable=False, default="offline")
+    credential_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     owner_account: Mapped[str] = mapped_column(String(100), nullable=False, default="", server_default="")
     session_key: Mapped[str] = mapped_column(String(64), nullable=False, default="")

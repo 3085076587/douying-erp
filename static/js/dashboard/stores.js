@@ -21,14 +21,26 @@
         select.value = values.indexOf(current) >= 0 ? current : "";
     }
 
+    function loginLeft(stamp) {
+        var matched = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(stamp || "");
+        if (!matched) return { text: "还没有记录", cls: "" };
+        var start = new Date(+matched[1], +matched[2] - 1, +matched[3], +matched[4], +matched[5], +matched[6]).getTime();
+        var left = start + 48 * 60 * 60 * 1000 - Date.now();
+        if (left <= 0) return { text: "建议重新登录", cls: "tag-wait" };
+        var totalMin = Math.floor(left / 60000);
+        if (totalMin < 1) return { text: "剩余不到 1 分", cls: "tag-wait" };
+        var hours = Math.floor(totalMin / 60);
+        var mins = totalMin % 60;
+        var text = hours > 0 ? ("剩余 " + hours + "小时" + mins + "分") : ("剩余 " + mins + "分");
+        return { text: text, cls: hours < 6 ? "tag-wait" : "tag-ok" };
+    }
+
     function paintStores() {
         var keyword = document.getElementById("store-search").value.trim().toLowerCase();
         var owner = document.getElementById("store-owner").value;
-        var identity = document.getElementById("store-identity").value;
         var login = document.getElementById("store-login").value;
         var rows = storeItems.filter(function (row) {
             if (owner && (row.owner_account || "") !== owner) return false;
-            if (identity && (row.identity_desc || "") !== identity) return false;
             if (login && (row.login_status || "") !== login) return false;
             if (!keyword) return true;
             return (row.name || "").toLowerCase().indexOf(keyword) >= 0 || String(row.shop_id || "").indexOf(keyword) >= 0;
@@ -42,9 +54,11 @@
             return;
         }
         body.innerHTML = rows.map(function (row) {
+            var left = loginLeft(row.credential_at);
+            var mark = left.cls ? '<span class="tag ' + left.cls + '">' + Dash.escapeHtml(left.text) + "</span>" : Dash.escapeHtml(left.text);
             return "<tr><td>" + Dash.escapeHtml(row.name) + "</td><td>" + Dash.escapeHtml(row.shop_id) +
                 "</td><td>" + Dash.escapeHtml(row.owner_account || "") +
-                "</td><td>" + Dash.escapeHtml(row.identity_desc) +
+                "</td><td>" + mark +
                 "</td><td>" + statusTag(row.login_status) + "</td></tr>";
         }).join("");
     }
@@ -53,20 +67,19 @@
         Dash.request("/stores").then(function (data) {
             storeItems = data.items || [];
             var owners = [];
-            var identities = [];
             storeItems.forEach(function (row) {
                 if (row.owner_account && owners.indexOf(row.owner_account) < 0) owners.push(row.owner_account);
-                if (row.identity_desc && identities.indexOf(row.identity_desc) < 0) identities.push(row.identity_desc);
             });
             fillSelect("store-owner", owners, "全部归属账号");
-            fillSelect("store-identity", identities, "全部身份");
             paintStores();
         }).catch(function (err) {
             body.innerHTML = '<tr><td colspan="5" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
     }
 
-    ["store-search", "store-owner", "store-identity", "store-login"].forEach(function (id) {
+    setInterval(paintStores, 30000);
+
+    ["store-search", "store-owner", "store-login"].forEach(function (id) {
         document.getElementById(id).addEventListener("input", paintStores);
         document.getElementById(id).addEventListener("change", paintStores);
     });

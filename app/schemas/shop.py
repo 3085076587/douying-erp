@@ -13,6 +13,7 @@ class ShopInfo(BaseModel):
     operate_status: str = ""
     legal_person: str = ""
     login_status: str
+    credential_at: str = ""
     owner_account: str = ""
     shop_cookie: int = 0
     opened_on: str = ""
