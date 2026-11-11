@@ -16,6 +16,26 @@ _UA = (
 )
 
 
+def _session_shop_id(cookies: dict[str, str]) -> str:
+    for name in ("ecom_gray_shop_id", "SHOP_ID", "shop_id"):
+        value = str(cookies.get(name) or "").strip()
+        if value.isdigit():
+            return value
+    return ""
+
+
+def _already_in_shop(cookies: dict[str, str], shop_id: str) -> bool:
+    wanted = str(shop_id or "").strip()
+    return bool(wanted) and _session_shop_id(cookies) == wanted
+
+
+def _enter_compass(cookies: dict[str, str], shop_id: str) -> None:
+    """插件交来的凭证已经停在这家店，直接用。选店会话才按名单进店。"""
+    if _already_in_shop(cookies, shop_id):
+        return
+    enter_listed_shop(cookies, shop_id, host="compass.jinritemai.com", login_source="compass")
+
+
 def _unwrap(payload: Any) -> dict:
     if not isinstance(payload, dict):
         raise ShopApiError("罗盘返回了无法识别的内容")
@@ -33,17 +53,14 @@ def _unwrap(payload: Any) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _get(
+def _read_card(
     cookies: dict[str, str],
     *,
-    shop_id: str,
     path: str,
     date_type: int,
     begin_date: str,
     end_date: str,
 ) -> dict:
-    """先进入这家店的商家视角，再取罗盘首页的一张卡。"""
-    enter_listed_shop(cookies, shop_id, host="compass.jinritemai.com", login_source="compass")
     try:
         response = httpx.get(
             f"{_HOST}{path}",
@@ -78,6 +95,45 @@ def _get(
     except json.JSONDecodeError as exc:
         raise ShopApiError("罗盘返回了无法识别的内容") from exc
     return _unwrap(payload)
+
+
+def _get(
+    cookies: dict[str, str],
+    *,
+    shop_id: str,
+    path: str,
+    date_type: int,
+    begin_date: str,
+    end_date: str,
+) -> dict:
+    """已经在这家店里就直接读。读的时候登录失效，再尝试按名单进一次。"""
+    entered = not _already_in_shop(cookies, shop_id)
+    if entered:
+        enter_listed_shop(cookies, shop_id, host="compass.jinritemai.com", login_source="compass")
+    try:
+        return _read_card(
+            cookies,
+            path=path,
+            date_type=date_type,
+            begin_date=begin_date,
+            end_date=end_date,
+        )
+    except ShopAuthError as first:
+        if entered:
+            raise
+        try:
+            enter_listed_shop(cookies, shop_id, host="compass.jinritemai.com", login_source="compass")
+        except ShopApiError as exc:
+            if "登录名单里没有这家店" in (exc.message or ""):
+                raise first from exc
+            raise
+        return _read_card(
+            cookies,
+            path=path,
+            date_type=date_type,
+            begin_date=begin_date,
+            end_date=end_date,
+        )
 
 
 def fetch_financial_summary(
@@ -221,7 +277,28 @@ def fetch_product_list(
     end_date: str,
 ) -> list[dict]:
     """商品列表明细。只取成交金额、成交订单数、退款率、成交退款金额、评价好评率。"""
-    enter_listed_shop(cookies, shop_id, host="compass.jinritemai.com", login_source="compass")
+    _enter_compass(cookies, shop_id)
+    try:
+        return _collect_products(cookies, date_type=date_type, begin_date=begin_date, end_date=end_date)
+    except ShopAuthError as first:
+        if not _already_in_shop(cookies, shop_id):
+            raise
+        try:
+            enter_listed_shop(cookies, shop_id, host="compass.jinritemai.com", login_source="compass")
+        except ShopApiError as exc:
+            if "登录名单里没有这家店" in (exc.message or ""):
+                raise first from exc
+            raise
+        return _collect_products(cookies, date_type=date_type, begin_date=begin_date, end_date=end_date)
+
+
+def _collect_products(
+    cookies: dict[str, str],
+    *,
+    date_type: int,
+    begin_date: str,
+    end_date: str,
+) -> list[dict]:
     rows: list[dict] = []
     page_no = 1
     while page_no <= _PRODUCT_PAGE_CAP:

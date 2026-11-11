@@ -46,7 +46,7 @@
             return (row.name || "").toLowerCase().indexOf(keyword) >= 0 || String(row.shop_id || "").indexOf(keyword) >= 0;
         });
         if (!storeItems.length) {
-            body.innerHTML = '<tr><td colspan="5" class="empty">还没有店铺。点右上角添加账号，用邮箱登录。</td></tr>';
+            body.innerHTML = '<tr><td colspan="5" class="empty">还没有店铺。请使用插件添加。</td></tr>';
             return;
         }
         if (!rows.length) {
@@ -295,18 +295,6 @@
                 finishEnter(state);
             }).catch(function () {});
         }
-    });
-
-    document.getElementById("btn-add-store").addEventListener("click", function () {
-        Dash.request("/stores/login-sync").then(function (state) {
-            document.getElementById("login-frame").src = "/login/common?channel=zhaoshang&fresh=1";
-            document.getElementById("login-mask").classList.remove("hidden", "working");
-            document.getElementById("enter-mask").classList.add("hidden");
-            watchLogin(state.mark || 0);
-        }).catch(function () {
-            document.getElementById("login-frame").src = "/login/common?channel=zhaoshang&fresh=1";
-            document.getElementById("login-mask").classList.remove("hidden", "working");
-        });
     });
 
     document.getElementById("close-login").addEventListener("click", function () {

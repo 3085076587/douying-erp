@@ -132,6 +132,7 @@ th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 th.sortable.sort-asc::after { content: " ↑"; }
 th.sortable.sort-desc::after { content: " ↓"; }
 .form-hint { color: var(--text-secondary); font-size: 13px; margin: 8px 0 4px; }
+.store-plugin-hint { margin: 0 0 0 auto; color: var(--text); }
 
 .btn {
     border: 1px solid var(--border);

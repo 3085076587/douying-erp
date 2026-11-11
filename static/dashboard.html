@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=15">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=16">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=8">
 </head>
@@ -51,10 +51,7 @@
             <section class="view active" id="view-stores">
                 <div class="panel">
                     <div class="toolbar">
-                        <p class="form-hint">添加账号会打开抖店邮箱登录。登录后保存每家店自己的登录凭证。</p>
-                        <div class="toolbar-actions">
-                            <button class="btn btn-primary" id="btn-add-store" type="button">＋ 添加账号</button>
-                        </div>
+                        <p class="form-hint store-plugin-hint">更新或添加店铺，请使用插件。</p>
                     </div>
                     <div class="filters">
                         <input id="store-search" type="search" placeholder="搜索店铺名称或店铺ID">
@@ -363,8 +360,8 @@
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
 <script src="/static/js/dashboard/core.js?v=11"></script>
-<script src="/static/js/dashboard/stores.js?v=9"></script>
-<script src="/static/js/dashboard/accounts.js?v=6"></script>
+<script src="/static/js/dashboard/stores.js?v=10"></script>
+<script src="/static/js/dashboard/accounts.js?v=7"></script>
 <script src="/static/js/dashboard/violations.js?v=16"></script>
 <script src="/static/js/dashboard/center.js?v=17"></script>
 </body>

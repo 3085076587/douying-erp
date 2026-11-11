@@ -107,7 +107,7 @@
         if (data) fundItems = data.items || [];
         var items = visibleFunds();
         if (!fundItems.length) {
-            body.innerHTML = '<tr><td colspan="16" class="empty">还没有账户数据。先在店铺列表添加账号，再点拉取最新。</td></tr>';
+            body.innerHTML = '<tr><td colspan="16" class="empty">还没有账户数据。请先用插件添加店铺，再点拉取最新。</td></tr>';
             return;
         }
         if (!items.length) {
