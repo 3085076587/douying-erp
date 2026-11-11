@@ -111,6 +111,17 @@ async function pageRun(action, payload) {
   const norm = (s) => String(s || "").replace(/[\u200b\u00a0\s]/g, "").replace(/／/g, "/");
   const text = () => String((document.body && document.body.innerText) || "");
   const skip = /^(店铺信息|切换组织\/店铺|退出|返回|管理|更多|查看|收起导航|请选择店铺|选择店铺|正常营业|已关店|营业中|主账号|子账号)$/;
+  const bareShop = /^(正常营业|已关店|营业中|停业整顿|个体店|企业店|旗舰店|专卖店|专营店|官方店|个人店|抖店工作台|登录中)$/;
+  const shopType = /(个体|企业|旗舰|专卖|专营|官方|个人)店/;
+  const headerJunk = /通知中心|飞鸽|下载|更多|搜索|学习中心|服务市场|电商罗盘|精选联盟|巨量|获取凭证|快速发布|去发品|发图文|无货源/;
+  const badgeBits = /(个体店|企业店|旗舰店|专卖店|专营店|官方店|个人店|正常营业|已关店|营业中|停业整顿|子账号|主账号|抖店工作台|登录中)/g;
+  const nameLine = (value) => {
+    const clean = norm(value);
+    if (!clean || clean.length < 2 || clean.length > 32) return false;
+    if (skip.test(clean) || bareShop.test(clean) || headerJunk.test(clean)) return false;
+    if (!clean.replace(badgeBits, "")) return false;
+    return /[\u4e00-\u9fa5A-Za-z]/.test(clean);
+  };
 
   const vis = (el) => {
     if (!el) return false;
@@ -139,22 +150,46 @@ async function pageRun(action, payload) {
   const hasCaptcha = () => /滑块|向右滑动|拖动滑块|按住左边按钮|安全验证/.test(text());
   const onLogin = () => /\/login/.test(location.pathname) && location.pathname.indexOf("/ffa/") < 0;
   const ready = () => !hasPicker() && !onLogin() && /店铺ID|经营数据|商品管理/.test(text());
-  const headerName = () => {
-    let name = "";
+  const headerBlock = () => {
+    let block = null;
     let best = Infinity;
     for (const el of document.querySelectorAll("div,span,a,button")) {
       if (!vis(el)) continue;
       const r = el.getBoundingClientRect();
-      if (r.top > 130 || r.bottom < 0 || r.width < 40 || r.width > 260 || r.height > 72) continue;
+      if (r.top > 130 || r.bottom < 0 || r.left < window.innerWidth * 0.5) continue;
+      if (r.width < 40 || r.width > 420 || r.height > 96) continue;
       const blob = norm(el.innerText || "");
-      if (blob.indexOf("严选") < 0 || blob.length > 24) continue;
+      if (!blob || blob.length > 48 || headerJunk.test(blob) || !shopType.test(blob)) continue;
+      if (!nameIn(el)) continue;
       const area = r.width * r.height;
       if (area < best) {
-        name = blob;
+        block = el;
         best = area;
       }
     }
-    return name;
+    return block;
+  };
+  const nameIn = (root) => {
+    if (!root) return null;
+    let found = null;
+    let best = Infinity;
+    const nodes = [root].concat(Array.from(root.querySelectorAll ? root.querySelectorAll("div,span,a,button") : []));
+    for (const el of nodes) {
+      if (!vis(el)) continue;
+      const blob = norm(el.innerText || "");
+      if (!nameLine(blob)) continue;
+      const r = el.getBoundingClientRect();
+      const area = r.width * r.height;
+      if (area < best) {
+        found = el;
+        best = area;
+      }
+    }
+    return found;
+  };
+  const headerName = () => {
+    const named = nameIn(headerBlock());
+    return named ? norm(named.innerText || "") : "";
   };
 
   const press = async (el) => {
@@ -273,28 +308,13 @@ async function pageRun(action, payload) {
     };
   }
 
-  const headerJunk = /通知中心|飞鸽|下载|更多|搜索|学习中心|服务市场|电商罗盘|精选联盟|巨量|获取凭证|快速发布|去发品|发图文|无货源/;
-  const statusOnly = /^(正常营业|已关店|营业中|停业整顿|个体店|企业店|旗舰店|专卖店|专营店|官方店|个人店)$/;
   const accountChip = () => {
-    let chip = null;
-    let best = Infinity;
-    for (const el of document.querySelectorAll("div,span,a,button")) {
-      if (!vis(el)) continue;
-      const r = el.getBoundingClientRect();
-      if (r.top > 130 || r.bottom < 0 || r.width < 40 || r.width > 260 || r.height > 72) continue;
-      const blob = norm(el.innerText || "");
-      if (!blob || blob.length > 24 || headerJunk.test(blob) || statusOnly.test(blob)) continue;
-      if (blob.indexOf("严选") < 0) continue;
-      const link = el.closest && el.closest("a");
-      const href = link ? (link.getAttribute("href") || "") : "";
-      if (/login|account/.test(href)) continue;
-      const area = r.width * r.height;
-      if (area < best) {
-        chip = el;
-        best = area;
-      }
-    }
-    return chip;
+    const named = nameIn(headerBlock());
+    if (!named) return null;
+    const link = named.closest && named.closest("a");
+    const href = link ? (link.getAttribute("href") || "") : "";
+    if (/login|account/.test(href)) return null;
+    return named;
   };
   const switchEntry = () => {
     const key = "切换组织/店铺";
@@ -405,21 +425,27 @@ async function pageRun(action, payload) {
     const seen = {};
     const push = (name, shopId) => {
       const clean = norm(name);
-      if (!clean || clean.length < 3 || clean.length > 32) return;
-      if (clean.indexOf("严选") < 0) return;
-      if (skip.test(clean)) return;
-      if (!/[\u4e00-\u9fa5A-Za-z]/.test(clean)) return;
+      if (!nameLine(clean)) return;
       const key = shopId || clean;
       if (seen[key]) return;
       seen[key] = 1;
       out.push({ name: clean, shop_id: shopId || "" });
     };
+    const inPicker = (el) => {
+      let node = el;
+      for (let i = 0; i < 12 && node; i += 1, node = node.parentElement) {
+        const blob = norm(node.innerText || "");
+        if (blob.indexOf("请选择店铺") >= 0 && blob.length < 8000) return true;
+      }
+      return false;
+    };
     const cardOf = (el) => {
+      if (!inPicker(el)) return null;
       let card = el;
-      for (let i = 0; i < 5 && card; i += 1) {
+      for (let i = 0; i < 6 && card; i += 1) {
         const blob = norm(card.innerText || "");
-        if (blob.length && blob.length <= 140 &&
-            (/店铺ID[:：]?\d{6,20}/.test(blob) || /(个体|企业|旗舰|专卖|专营|官方|个人)店/.test(blob))) {
+        if (blob.length && blob.length <= 180 &&
+            /(子账号|主账号)/.test(blob) && shopType.test(blob)) {
           return card;
         }
         card = card.parentElement;
@@ -441,11 +467,11 @@ async function pageRun(action, payload) {
       for (const el of document.querySelectorAll("div")) {
         if (!vis(el)) continue;
         const blob = norm(el.innerText || "");
-        if (!blob || blob.length > 140) continue;
-        if (!/店铺ID[:：]?\d{6,20}/.test(blob)) continue;
-        const first = String(el.innerText || "").split("\n").map((s) => s.replace(/\s+/g, "")).filter(Boolean)[0] || "";
+        if (!blob || blob.length > 180 || !cardOf(el)) continue;
+        const lines = String(el.innerText || "").split("\n").map((s) => s.replace(/\s+/g, "")).filter(Boolean);
+        const title = lines.map(norm).find((line) => nameLine(line)) || "";
         const idMatch = blob.match(/店铺ID[:：]?(\d{6,20})/);
-        push(first, idMatch ? idMatch[1] : "");
+        push(title, idMatch ? idMatch[1] : "");
       }
     };
     harvest();
@@ -862,7 +888,7 @@ async function waitShopReady(tabId, expectName) {
     if (snap && snap.captcha) return snap;
     if (snap && !snap.picker && (snap.ready || snap.shop_id)) {
       const header = String((snap && snap.header) || "");
-      if (!want || header.indexOf(want) >= 0) return snap;
+      if (!want || header.indexOf(want) >= 0 || (header.length >= 4 && want.indexOf(header) >= 0)) return snap;
     }
     await sleep(400);
   }
@@ -1264,7 +1290,7 @@ async function captureAll(apiBase, token, account) {
         }
         const header = String((entered && entered.header) || "");
         if (entered && entered.captcha) status = "captcha";
-        else if (entered && !entered.picker && header.indexOf(shop.name) >= 0) status = "entered";
+        else if (entered && !entered.picker && header && (header.indexOf(shop.name) >= 0 || (header.length >= 4 && shop.name.indexOf(header) >= 0))) status = "entered";
         else status = "timeout";
       }
       const into = { status: status };
