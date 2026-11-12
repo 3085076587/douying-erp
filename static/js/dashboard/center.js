@@ -702,7 +702,8 @@
             var shop = "<td>" + Dash.escapeHtml(item.name || "未命名店铺")
                 + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
             if (item.sync_error) {
-                return "<tr>" + product + shop + '<td colspan="5" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
+                var errorText = item.sync_error.indexOf("频繁") >= 0 ? "暂无商品数据" : item.sync_error;
+                return "<tr>" + product + shop + '<td colspan="5" class="center-error">' + Dash.escapeHtml(errorText) + "</td></tr>";
             }
             return "<tr>" + product + shop
                 + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.pay_amount || "—") + "</div></td>"
