@@ -120,7 +120,7 @@
             <section class="view" id="view-invoices">
                 <div class="panel">
                     <div class="toolbar">
-                        <p class="form-hint">我给平台开票看待开票账单。给消费者开票看待开票。点拉取最新向抖店要数量。</p>
+                        <p class="form-hint">我给平台开票看待开票账单。给消费者开票看待开票。每 10 分钟更新一次，也可以点拉取最新。</p>
                         <div class="toolbar-actions">
                             <input id="invoice-search" type="search" placeholder="搜索店铺">
                             <select id="invoice-owner"><option value="">全部归属账号</option></select>
@@ -135,35 +135,23 @@
                             <small>待开票账单</small>
                         </div>
                         <div class="invoice-stat">
-                            <span>平台处理中</span>
-                            <strong id="invoice-platform-processing">—</strong>
-                            <small>处理中</small>
-                        </div>
-                        <div class="invoice-stat">
-                            <span>平台历史</span>
-                            <strong id="invoice-platform-finished">—</strong>
-                            <small>历史处理记录</small>
-                        </div>
-                        <div class="invoice-stat">
                             <span>给消费者开票</span>
                             <strong id="invoice-consumer-pending">—</strong>
                             <small>待开票</small>
                         </div>
                     </div>
                     <div class="table-wrap">
-                        <table class="data-table">
+                        <table class="data-table" id="invoice-table">
                             <thead>
                             <tr>
                                 <th>店铺</th>
                                 <th>归属账号</th>
-                                <th>平台待开票</th>
-                                <th>平台处理中</th>
-                                <th>平台历史</th>
-                                <th>消费者待开票</th>
+                                <th class="sortable" data-sort="platform_pending">平台待开票</th>
+                                <th class="sortable" data-sort="consumer_pending">消费者待开票</th>
                             </tr>
                             </thead>
                             <tbody id="invoice-tbody">
-                            <tr><td colspan="6" class="empty">打开后加载</td></tr>
+                            <tr><td colspan="4" class="empty">打开后加载</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -424,7 +412,7 @@
 <script src="/static/js/dashboard/core.js?v=12"></script>
 <script src="/static/js/dashboard/stores.js?v=10"></script>
 <script src="/static/js/dashboard/accounts.js?v=7"></script>
-<script src="/static/js/dashboard/invoices.js?v=1"></script>
+<script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/violations.js?v=16"></script>
 <script src="/static/js/dashboard/center.js?v=22"></script>
 </body>

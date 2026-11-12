@@ -9,8 +9,6 @@ class InvoiceRow(BaseModel):
     owner_account: str = ""
     login_status: str = ""
     platform_pending: int | None = None
-    platform_processing: int | None = None
-    platform_finished: int | None = None
     consumer_pending: int | None = None
     sync_error: str = ""
 
@@ -19,8 +17,6 @@ class InvoiceList(BaseModel):
     items: list[InvoiceRow]
     updated_at: str = ""
     platform_pending: int = 0
-    platform_processing: int = 0
-    platform_finished: int = 0
     consumer_pending: int = 0
 
 

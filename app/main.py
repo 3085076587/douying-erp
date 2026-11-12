@@ -20,6 +20,7 @@ from app.services.schedule_log import write_fail, write_start, write_success
 from app.services import violation_service
 from app.services.center_service import center_schedule, load_center_cache, run_center_cycle, run_overview_cycle, touch_daily
 from app.services.home_service import next_home_wait, refresh_home
+from app.services import invoice_service
 from app.services.account_service import refresh_saved_accounts
 from app.services.store_service import (
     ensure_credential_at_column,
@@ -170,6 +171,33 @@ def _next_daily_text() -> str:
     return nxt.strftime("%Y-%m-%d %H:%M")
 
 
+async def _invoice_loop() -> None:
+    """发票数量：启动后先预热，之后每 10 分钟写入 Redis。开始和结果都写入 logs/schedule.log。"""
+    logger.info("发票管理已启动，20秒后预热，之后每 10 分钟写入 Redis")
+    write_start("发票管理，20秒后预热，之后每 10 分钟")
+    await asyncio.sleep(20)
+    while True:
+        try:
+            write_start("发票管理")
+            result = await asyncio.to_thread(invoice_service.run_scheduled)
+            message = str(result.get("message") or "完成")
+            failed = int(result.get("failed") or 0)
+            if result.get("skipped"):
+                write_success(f"发票管理 {message}")
+            elif failed:
+                write_fail("发票管理", message)
+            else:
+                write_success(f"发票管理已写入 Redis，{message}")
+            logger.info("发票管理下次更新 %s", (datetime.now() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M"))
+            await asyncio.sleep(600)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("发票管理更新失败")
+            write_fail("发票管理")
+            await asyncio.sleep(60)
+
+
 async def _home_loop() -> None:
     """数据总览和店铺首页：启动后先预热，之后每天 0 点和 12 点写入 Redis。页面不展示这个时间。"""
     logger.info("数据总览、店铺首页已启动，25秒后预热，之后每天 0 点和 12 点写入 Redis")
@@ -218,6 +246,7 @@ async def lifespan(_: FastAPI):
     refresh_task = asyncio.create_task(_refresh_loop())
     violation_task = asyncio.create_task(_violation_loop())
     home_task = asyncio.create_task(_home_loop())
+    invoice_task = asyncio.create_task(_invoice_loop())
     logger.info("%s 已启动，环境：%s", settings.app_name, settings.app_env)
     try:
         yield
@@ -227,6 +256,7 @@ async def lifespan(_: FastAPI):
         refresh_task.cancel()
         violation_task.cancel()
         home_task.cancel()
+        invoice_task.cancel()
         logger.info("%s 已关闭", settings.app_name)
 
 

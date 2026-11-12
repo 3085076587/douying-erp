@@ -3,15 +3,20 @@
 
     var rows = [];
     var pollTimer = null;
+    var sort = { key: "", dir: -1 };
 
     function countText(value) {
         return value === null || value === undefined || value === "" ? "—" : String(value);
     }
 
+    function sortNumber(value) {
+        if (value === null || value === undefined || value === "") return null;
+        var number = Number(value);
+        return isNaN(number) ? null : number;
+    }
+
     function paintSummary(data) {
         document.getElementById("invoice-platform-pending").textContent = countText(data.platform_pending);
-        document.getElementById("invoice-platform-processing").textContent = countText(data.platform_processing);
-        document.getElementById("invoice-platform-finished").textContent = countText(data.platform_finished);
         document.getElementById("invoice-consumer-pending").textContent = countText(data.consumer_pending);
         document.getElementById("invoice-updated").textContent = data.updated_at ? ("更新于 " + data.updated_at) : "还没有拉取";
     }
@@ -19,11 +24,32 @@
     function filtered() {
         var keyword = (document.getElementById("invoice-search").value || "").trim().toLowerCase();
         var owner = document.getElementById("invoice-owner").value;
-        return rows.filter(function (row) {
+        var items = rows.filter(function (row) {
             if (owner && row.owner_account !== owner) return false;
             if (!keyword) return true;
             return String(row.name || "").toLowerCase().indexOf(keyword) >= 0
                 || String(row.shop_id || "").indexOf(keyword) >= 0;
+        });
+        if (!sort.key) return items;
+        var key = sort.key;
+        var dir = sort.dir;
+        items.sort(function (left, right) {
+            var a = left.sync_error ? null : sortNumber(left[key]);
+            var b = right.sync_error ? null : sortNumber(right[key]);
+            if (a == null && b == null) return 0;
+            if (a == null) return 1;
+            if (b == null) return -1;
+            return (a - b) * dir;
+        });
+        return items;
+    }
+
+    function markSort() {
+        document.querySelectorAll("#invoice-table th.sortable").forEach(function (cell) {
+            cell.classList.remove("sort-asc", "sort-desc");
+            if (cell.getAttribute("data-sort") === sort.key) {
+                cell.classList.add(sort.dir > 0 ? "sort-asc" : "sort-desc");
+            }
         });
     }
 
@@ -31,7 +57,7 @@
         var body = document.getElementById("invoice-tbody");
         var items = filtered();
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="6" class="empty">没有符合条件的店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="4" class="empty">没有符合条件的店铺</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (row) {
@@ -39,12 +65,10 @@
                 + '<div class="center-home-id">' + Dash.escapeHtml(row.shop_id || "") + "</div></td>";
             var owner = "<td>" + Dash.escapeHtml(row.owner_account || "—") + "</td>";
             if (row.sync_error) {
-                return "<tr>" + shop + owner + '<td colspan="4" class="center-error">' + Dash.escapeHtml(row.sync_error) + "</td></tr>";
+                return "<tr>" + shop + owner + '<td colspan="2" class="center-error">' + Dash.escapeHtml(row.sync_error) + "</td></tr>";
             }
             return "<tr>" + shop + owner
                 + "<td>" + countText(row.platform_pending) + "</td>"
-                + "<td>" + countText(row.platform_processing) + "</td>"
-                + "<td>" + countText(row.platform_finished) + "</td>"
                 + "<td>" + countText(row.consumer_pending) + "</td></tr>";
         }).join("");
     }
@@ -107,6 +131,15 @@
     });
     document.getElementById("invoice-search").addEventListener("input", paint);
     document.getElementById("invoice-owner").addEventListener("change", paint);
+    document.querySelector("#invoice-table thead").addEventListener("click", function (event) {
+        var cell = event.target.closest("th[data-sort]");
+        if (!cell) return;
+        var key = cell.getAttribute("data-sort");
+        sort.dir = sort.key === key ? sort.dir * -1 : -1;
+        sort.key = key;
+        markSort();
+        paint();
+    });
 
     window.Dash.loadInvoices = load;
 })();

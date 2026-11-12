@@ -39,8 +39,6 @@ def _blank(shop: Shop, error: str = "") -> dict:
         "owner_account": shop.owner_account or "",
         "login_status": shop.login_status,
         "platform_pending": None,
-        "platform_processing": None,
-        "platform_finished": None,
         "consumer_pending": None,
         "sync_error": error[:200],
     }
@@ -89,8 +87,6 @@ def _pull_one(shop_id: int) -> dict:
 def _totals(items: list[dict]) -> dict[str, int]:
     totals = {
         "platform_pending": 0,
-        "platform_processing": 0,
-        "platform_finished": 0,
         "consumer_pending": 0,
     }
     for row in items:
@@ -160,7 +156,21 @@ def refresh_invoices() -> dict:
         _LOG.exception("发票数量更新失败")
         with _PROGRESS:
             _PROGRESS_SLOT.update(message="拉取过程出错了，请查看服务端日志")
-        return {"total": 0, "failed": 0, "message": "拉取过程出错了"}
+        return {"total": 0, "failed": 1, "message": "拉取过程出错了"}
+
+
+def run_scheduled() -> dict:
+    """定时任务入口。页面正在拉取时这一轮跳过，避免两轮叠在一起。"""
+    if not _JOB.acquire(blocking=False):
+        return {"total": 0, "failed": 0, "message": "上一轮还在拉，这一轮跳过", "skipped": True}
+    try:
+        with _PROGRESS:
+            _PROGRESS_SLOT.update(running=True, done=0, total=0, failed=0, message="")
+        return refresh_invoices()
+    finally:
+        with _PROGRESS:
+            _PROGRESS_SLOT["running"] = False
+        _JOB.release()
 
 
 def start_refresh() -> dict:

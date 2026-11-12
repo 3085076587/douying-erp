@@ -1,6 +1,6 @@
 """抖店发票数量。
 
-我给平台开票：待开票账单、处理中、历史处理记录。数量按开票主体查。
+我给平台开票：待开票账单，按开票主体查。
 给消费者开票：待开票。
 """
 from __future__ import annotations
@@ -85,27 +85,16 @@ def _platform_counts(cookies: dict[str, str], credit_code: str) -> dict[str, int
     if str(body.get("RetCode") or "") not in {"0000", "0"}:
         raise ShopApiError(str(body.get("RetMessage") or "平台发票数量没拉到")[:200])
     data = body.get("RetData") if isinstance(body.get("RetData"), dict) else {}
-    return {
-        "platform_pending": _count(data.get("UninvoicedCount")),
-        "platform_processing": _count(data.get("ProcessingCount")),
-        "platform_finished": _count(data.get("FinishedCount")),
-    }
+    return {"platform_pending": _count(data.get("UninvoicedCount"))}
 
 
 def fetch_platform_invoice_counts(cookies: dict[str, str]) -> dict[str, int]:
-    """我给平台开票。待开票账单、处理中、历史处理记录，按开票主体相加。"""
+    """我给平台开票。待开票账单按开票主体相加。"""
     codes = _subject_codes(cookies) or [""]
-    pending = processing = finished = 0
+    pending = 0
     for credit_code in codes:
-        counts = _platform_counts(cookies, credit_code)
-        pending += counts["platform_pending"]
-        processing += counts["platform_processing"]
-        finished += counts["platform_finished"]
-    return {
-        "platform_pending": pending,
-        "platform_processing": processing,
-        "platform_finished": finished,
-    }
+        pending += _platform_counts(cookies, credit_code)["platform_pending"]
+    return {"platform_pending": pending}
 
 
 def fetch_consumer_invoice_counts(cookies: dict[str, str]) -> dict[str, int]:
