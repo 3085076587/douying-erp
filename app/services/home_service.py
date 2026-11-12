@@ -142,16 +142,22 @@ def _refresh_home() -> dict:
     try:
         if shops:
             take_turns([shop.id for shop in shops], pull, workers=HOME_WORKERS, lane="home")
-        rows = [by_pk[shop.id] for shop in shops if shop.id in by_pk]
+        pulled = [by_pk[shop.id] for shop in shops if shop.id in by_pk]
         previous = fund_cache.read(_CACHE) or []
-        rows = merge_kept(previous if isinstance(previous, list) else [], rows)
-        updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        rows = merge_kept(previous if isinstance(previous, list) else [], pulled)
+        failed = sum(1 for row in pulled if row.get("sync_error"))
+        got_new = any(not row.get("sync_error") for row in pulled)
+        if got_new:
+            updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            fund_cache.write_obj(_META, {"updated_at": updated_at}, _TTL_SECONDS)
         fund_cache.write(_CACHE, rows, _TTL_SECONDS)
-        fund_cache.write_obj(_META, {"updated_at": updated_at}, _TTL_SECONDS)
-        failed = sum(1 for row in rows if row.get("sync_error"))
-        message = f"店铺首页待办 {len(rows) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")
+        if not got_new:
+            failed = failed or 1
+            message = "没有拿到新数据，页面仍是上次的数"
+        else:
+            message = f"店铺首页待办 {len(pulled) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")
         with _PROGRESS:
-            _PROGRESS_SLOT.update(done=len(shops), failed=failed, message=message or "完成")
+            _PROGRESS_SLOT.update(done=len(shops), failed=failed, message=message)
         if failed:
             write_fail("店铺首页待办", message)
         else:
