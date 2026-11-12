@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime
 
 _LOCK = threading.Lock()
 _MEMORY: dict[str, tuple[float, str]] = {}
@@ -98,3 +99,15 @@ def drop(kind: str) -> None:
             pass
     with _LOCK:
         _MEMORY.pop(kind, None)
+
+
+def stamp_fresh(value, seconds: int = 600) -> bool:
+    """时间戳距现在不到 seconds 秒。认 Redis 里写过的两种格式。"""
+    text = str(value or "").strip().replace("T", " ")[:19]
+    if len(text) < 19:
+        return False
+    try:
+        updated = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return False
+    return (datetime.now() - updated).total_seconds() < seconds

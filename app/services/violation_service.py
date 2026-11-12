@@ -62,6 +62,13 @@ def next_update_text(last_update: str = "") -> str:
     return (last_at + timedelta(minutes=schedule_minutes())).strftime("%Y-%m-%d %H:%M")
 
 
+def cache_fresh(seconds: int = 600) -> bool:
+    """上一轮违规拉取是否还在指定秒数内。"""
+    from app.services import fund_cache
+
+    return fund_cache.stamp_fresh(read_state().get("last_update"), seconds)
+
+
 def read_state() -> dict:
     """上一次更新的时间、结果。写在 logs 下的 json，重启也还在。"""
     try:

@@ -159,6 +159,12 @@ def refresh_invoices() -> dict:
         return {"total": 0, "failed": 1, "message": "拉取过程出错了"}
 
 
+def cache_fresh(seconds: int = 600) -> bool:
+    """发票缓存是否还在指定秒数内。"""
+    meta = fund_cache.read_obj(_META) or {}
+    return fund_cache.stamp_fresh(meta.get("updated_at"), seconds)
+
+
 def run_scheduled() -> dict:
     """定时任务入口。页面正在拉取时这一轮跳过，避免两轮叠在一起。"""
     if not _JOB.acquire(blocking=False):

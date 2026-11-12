@@ -18,10 +18,19 @@ from app.services.auth import ensure_admin
 from app.services.dy_proxy import browser_origin, build_proxy_response
 from app.services.schedule_log import write_fail, write_start, write_success
 from app.services import violation_service
-from app.services.center_service import center_schedule, load_center_cache, run_center_cycle, run_overview_cycle, touch_daily
+from app.services.center_service import (
+    center_cache_fresh,
+    center_schedule,
+    load_center_cache,
+    overview_cache_fresh,
+    run_center_cycle,
+    run_overview_cycle,
+    touch_daily,
+)
+from app.services.home_service import cache_fresh as home_cache_fresh
 from app.services.home_service import next_home_wait, refresh_home
 from app.services import invoice_service
-from app.services.account_service import refresh_saved_accounts
+from app.services.account_service import live_cache_fresh, refresh_saved_accounts
 from app.services.store_service import (
     ensure_credential_at_column,
     ensure_owner_account_column,
@@ -63,26 +72,52 @@ async def _renew_loop() -> None:
 
 
 async def _refresh_loop() -> None:
-    """启动 20 秒后拉一次账户中心，之后按 DATA_REFRESH_HOURS 重复。金额写入 Redis。"""
+    """启动后拉一次账户中心，之后按 DATA_REFRESH_HOURS 重复。10 分钟内 Redis 已有金额则跳过这次预热。"""
     hours = _hours(get_settings().data_refresh_hours, 1)
     logger.info("账户中心定时更新已启动，20秒后第一次，之后每 %s 小时", hours)
     write_start(f"账户中心，20秒后第一次，之后每 {hours} 小时")
-    await asyncio.sleep(20)
-    while True:
+    if live_cache_fresh():
+        write_success("账户中心 10分钟内已有数据，启动预热跳过")
+        logger.info("账户中心 10分钟内已有数据，启动预热跳过")
+    else:
+        await asyncio.sleep(20)
         try:
             await asyncio.to_thread(refresh_saved_accounts)
         except Exception:
             logger.exception("账户中心更新失败")
             write_fail("账户中心")
-        hours = _hours(get_settings().data_refresh_hours, 1)
-        _note_next("账户中心", hours)
-        await asyncio.sleep(hours * 3600)
+    while True:
+        try:
+            hours = _hours(get_settings().data_refresh_hours, 1)
+            _note_next("账户中心", hours)
+            await asyncio.sleep(hours * 3600)
+            await asyncio.to_thread(refresh_saved_accounts)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("账户中心更新失败")
+            write_fail("账户中心")
+            await asyncio.sleep(60)
+
+
+async def _violation_once(minutes: int) -> None:
+    write_start("违规与预警")
+    await asyncio.to_thread(violation_service.run_refresh_sync, "", "", "schedule")
+    state = violation_service.progress()
+    message = str(state.get("message") or "完成")
+    failed = int(state.get("failed") or 0)
+    if failed:
+        write_fail("违规与预警", message)
+        logger.warning("违规与预警定时更新有失败：%s", message)
+    else:
+        write_success(f"违规与预警 {message}")
+    logger.info("违规与预警下次更新 %s", (datetime.now() + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M"))
 
 
 async def _violation_loop() -> None:
     """违规与预警定时更新：启动后先预热一次，之后每 VIOLATION_REFRESH_MINUTES 分钟再拉。
 
-    - 第一次不等上次更新时间，进程起来约 20 秒就开始拉；
+    - 启动预热：Redis 里这份数据还在 10 分钟内就跳过，否则约 20 秒后开始拉；
     - 预热完成后仍按上次更新时间推算下一轮，间隔不变；
     - 每次开始/成功/失败都写 logs/schedule.log，更新完成时间写 logs/violation_scheduler_state.json；
     - 页面上的「数据10分钟更新一次，上一次更新 xxx，下次更新 xxx」就读这个状态文件。
@@ -93,32 +128,26 @@ async def _violation_loop() -> None:
     first = True
     while True:
         try:
-            wait_seconds = 20.0
             if first:
-                violation_service.begin_warmup()
-            if not first:
-                last = str(violation_service.read_state().get("last_update") or "")
-                if last:
-                    try:
-                        last_at = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
-                        wait_seconds = max(5.0, (last_at + timedelta(minutes=minutes) - datetime.now()).total_seconds())
-                    except ValueError:
-                        wait_seconds = 20.0
-            first = False
+                first = False
+                if violation_service.cache_fresh():
+                    write_success("违规与预警 10分钟内已有数据，启动预热跳过")
+                    logger.info("违规与预警 10分钟内已有数据，启动预热跳过")
+                else:
+                    violation_service.begin_warmup()
+                    await asyncio.sleep(20)
+                    await _violation_once(minutes)
+                    continue
+            wait_seconds = 20.0
+            last = str(violation_service.read_state().get("last_update") or "")
+            if last:
+                try:
+                    last_at = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+                    wait_seconds = max(5.0, (last_at + timedelta(minutes=minutes) - datetime.now()).total_seconds())
+                except ValueError:
+                    wait_seconds = 20.0
             await asyncio.sleep(wait_seconds)
-
-            write_start("违规与预警")
-            await asyncio.to_thread(violation_service.run_refresh_sync, "", "", "schedule")
-
-            state = violation_service.progress()
-            message = str(state.get("message") or "完成")
-            failed = int(state.get("failed") or 0)
-            if failed:
-                write_fail("违规与预警", message)
-                logger.warning("违规与预警定时更新有失败：%s", message)
-            else:
-                write_success(f"违规与预警 {message}")
-            logger.info("违规与预警下次更新 %s", (datetime.now() + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M"))
+            await _violation_once(minutes)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -128,15 +157,25 @@ async def _violation_loop() -> None:
 
 
 async def _center_loop() -> None:
-    """店铺明细、商品明细：启动后先预热，之后每 10 分钟写入 Redis。"""
+    """店铺明细、商品明细：启动后先预热，之后每 10 分钟写入 Redis。10 分钟内已有数据则跳过这次预热。"""
     logger.info("店铺明细、商品明细已启动，20秒后预热，之后每 10 分钟写入 Redis")
     write_start("店铺明细、商品明细，20秒后预热，之后每 10 分钟")
-    await asyncio.sleep(20)
-    while True:
+    if center_cache_fresh():
+        write_success("店铺明细、商品明细 10分钟内已有数据，启动预热跳过")
+        logger.info("店铺明细、商品明细 10分钟内已有数据，启动预热跳过")
+    else:
+        await asyncio.sleep(20)
         try:
             write_start("店铺明细、商品明细")
             await asyncio.to_thread(run_center_cycle)
             write_success("店铺明细、商品明细已写入 Redis")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("店铺明细、商品明细更新失败")
+            write_fail("店铺明细、商品明细")
+    while True:
+        try:
             state = center_schedule()
             logger.info("店铺明细、商品明细下次更新 %s", state.get("next_update") or "")
             wait_seconds = 600.0
@@ -148,6 +187,9 @@ async def _center_loop() -> None:
                 except ValueError:
                     wait_seconds = 600.0
             await asyncio.sleep(wait_seconds)
+            write_start("店铺明细、商品明细")
+            await asyncio.to_thread(run_center_cycle)
+            write_success("店铺明细、商品明细已写入 Redis")
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -156,14 +198,20 @@ async def _center_loop() -> None:
             await asyncio.sleep(60)
 
 
-def _run_daily() -> str:
-    home = refresh_home()
-    touch_daily()
-    overview = run_overview_cycle()
-    failed = int(home.get("failed") or 0) + int(overview.get("failed") or 0)
+def _run_daily(pull_home: bool = True, pull_overview: bool = True) -> str:
+    failed = 0
+    if pull_home:
+        home = refresh_home()
+        failed += int(home.get("failed") or 0)
+    if pull_overview:
+        touch_daily()
+        overview = run_overview_cycle()
+        failed += int(overview.get("failed") or 0)
     if not failed:
         return ""
-    return f"店铺首页 {home.get('failed') or 0} 家没拉到，数据总览 {overview.get('failed') or 0} 家次没拉到"
+    home_failed = int(home.get("failed") or 0) if pull_home else 0
+    overview_failed = int(overview.get("failed") or 0) if pull_overview else 0
+    return f"店铺首页 {home_failed} 家没拉到，数据总览 {overview_failed} 家次没拉到"
 
 
 def _next_daily_text() -> str:
@@ -172,24 +220,20 @@ def _next_daily_text() -> str:
 
 
 async def _invoice_loop() -> None:
-    """发票数量：启动后先预热，之后每 10 分钟写入 Redis。开始和结果都写入 logs/schedule.log。"""
+    """发票数量：启动后先预热，之后每 10 分钟写入 Redis。10 分钟内已有数据则跳过这次预热。"""
     logger.info("发票管理已启动，20秒后预热，之后每 10 分钟写入 Redis")
     write_start("发票管理，20秒后预热，之后每 10 分钟")
-    await asyncio.sleep(20)
+    if invoice_service.cache_fresh():
+        write_success("发票管理 10分钟内已有数据，启动预热跳过")
+        logger.info("发票管理 10分钟内已有数据，启动预热跳过")
+    else:
+        await asyncio.sleep(20)
+        await _invoice_once()
     while True:
         try:
-            write_start("发票管理")
-            result = await asyncio.to_thread(invoice_service.run_scheduled)
-            message = str(result.get("message") or "完成")
-            failed = int(result.get("failed") or 0)
-            if result.get("skipped"):
-                write_success(f"发票管理 {message}")
-            elif failed:
-                write_fail("发票管理", message)
-            else:
-                write_success(f"发票管理已写入 Redis，{message}")
             logger.info("发票管理下次更新 %s", (datetime.now() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M"))
             await asyncio.sleep(600)
+            await _invoice_once()
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -198,22 +242,59 @@ async def _invoice_loop() -> None:
             await asyncio.sleep(60)
 
 
+async def _invoice_once() -> None:
+    try:
+        write_start("发票管理")
+        result = await asyncio.to_thread(invoice_service.run_scheduled)
+        message = str(result.get("message") or "完成")
+        failed = int(result.get("failed") or 0)
+        if result.get("skipped"):
+            write_success(f"发票管理 {message}")
+        elif failed:
+            write_fail("发票管理", message)
+        else:
+            write_success(f"发票管理已写入 Redis，{message}")
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("发票管理更新失败")
+        write_fail("发票管理")
+
+
 async def _home_loop() -> None:
-    """数据总览和店铺首页：启动后先预热，之后每天 0 点和 12 点写入 Redis。页面不展示这个时间。"""
+    """数据总览和店铺首页：启动后先预热，之后每天 0 点和 12 点写入 Redis。10 分钟内已有数据则跳过这次预热。"""
     logger.info("数据总览、店铺首页已启动，25秒后预热，之后每天 0 点和 12 点写入 Redis")
     write_start("数据总览、店铺首页，25秒后预热，之后每天 0 点和 12 点")
-    await asyncio.sleep(25)
+    home_ok = home_cache_fresh()
+    overview_ok = overview_cache_fresh()
+    if home_ok and overview_ok:
+        write_success("数据总览、店铺首页 10分钟内已有数据，启动预热跳过")
+        logger.info("数据总览、店铺首页 10分钟内已有数据，启动预热跳过")
+    else:
+        await asyncio.sleep(25)
+        try:
+            write_start("数据总览、店铺首页")
+            detail = await asyncio.to_thread(_run_daily, not home_ok, not overview_ok)
+            if detail:
+                write_fail("数据总览、店铺首页", detail)
+            else:
+                write_success("数据总览、店铺首页已写入 Redis")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("数据总览、店铺首页更新失败")
+            write_fail("数据总览、店铺首页")
     while True:
         try:
+            nxt = _next_daily_text()
+            logger.info("数据总览、店铺首页下次更新 %s", nxt)
+            await asyncio.sleep(next_home_wait())
             write_start("数据总览、店铺首页")
             detail = await asyncio.to_thread(_run_daily)
             if detail:
                 write_fail("数据总览、店铺首页", detail)
             else:
                 write_success("数据总览、店铺首页已写入 Redis")
-            nxt = _next_daily_text()
-            logger.info("数据总览、店铺首页下次更新 %s", nxt)
-            await asyncio.sleep(next_home_wait())
         except asyncio.CancelledError:
             raise
         except Exception:

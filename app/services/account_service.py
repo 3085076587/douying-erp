@@ -251,6 +251,19 @@ def _store_live(store_pk: int, row: dict) -> None:
         fund_cache.write_obj("live", current, cache_ttl_seconds())
 
 
+def live_cache_fresh(seconds: int = 600) -> bool:
+    """账户中心金额缓存是否都在指定秒数内。"""
+    live = fund_cache.read_obj("live") or {}
+    stamps = [
+        row.get("synced_at")
+        for row in live.values()
+        if isinstance(row, dict) and row.get("synced_at")
+    ]
+    if not stamps:
+        return False
+    return all(fund_cache.stamp_fresh(item, seconds) for item in stamps)
+
+
 def list_saved_accounts(db: Session) -> list[dict]:
     """店铺名、法人、银行卡读库。金额读 Redis 里最近一次实时拉取。"""
     shops = list(db.scalars(select(Shop).order_by(Shop.id.asc())))

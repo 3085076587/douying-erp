@@ -1322,6 +1322,25 @@ def center_schedule() -> dict:
     return data
 
 
+def overview_cache_fresh(seconds: int = 600) -> bool:
+    """数据总览四个时间窗口的缓存是否都在指定秒数内。"""
+    for preset in ("realtime", "1", "7", "30"):
+        try:
+            _date_type, start_day, end_day = resolve_span(preset)
+        except Exception:
+            return False
+        payload = fund_cache.read_obj(_overview_kind(_span_key(preset, start_day, end_day))) or {}
+        if not fund_cache.stamp_fresh(payload.get("updated_at"), seconds):
+            return False
+    return True
+
+
+def center_cache_fresh(seconds: int = 600) -> bool:
+    """店铺明细和商品明细这一轮是否在指定秒数内写完。"""
+    stored = fund_cache.read_obj("center_schedule") or {}
+    return fund_cache.stamp_fresh(stored.get("last_update"), seconds)
+
+
 def load_center_cache() -> None:
     """进程刚起来时先把 Redis 里的数据总览、店铺明细、商品明细读回来，页面不用等这一轮拉完。"""
     for preset in ("realtime", "1", "7", "30"):

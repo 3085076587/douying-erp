@@ -12,9 +12,8 @@ from app.models.shop import Shop
 from app.services import fund_cache
 from app.services.dy_client import FXG_HOST, ShopApiError, ShopAuthError, cookie_store, cookies_for
 from app.services.dy_home import fetch_home_todos
-from app.services.dy_violation import fetch_appeal_ticket_ids
 from app.services.schedule_log import write_fail, write_success
-from app.services.fetch_pace import merge_kept, take_turns
+from app.services.fetch_pace import HOME_WORKERS, merge_kept, take_turns
 from app.services.store_service import keep_shop_jar
 
 _LOG = logging.getLogger("uvicorn.error")
@@ -85,16 +84,18 @@ def _pull_one(shop_id: int) -> dict:
             return _blank(shop, exc.message or "首页接口失败")
         row = _blank(shop)
         row.update(values)
-        try:
-            row["pending_violation_ids"] = fetch_appeal_ticket_ids(cookies)
-        except (ShopAuthError, ShopApiError):
-            pass
         return row
     except Exception:
         _LOG.exception("拉取店铺 %s 首页待办失败", shop_id)
         return {"store_pk": shop_id, "shop_id": "", "sync_error": "暂时没拉到"}
     finally:
         db.close()
+
+
+def cache_fresh(seconds: int = 600) -> bool:
+    """店铺首页缓存是否还在指定秒数内。"""
+    age = _updated_age()
+    return age is not None and age < seconds
 
 
 def home_progress() -> dict:
@@ -140,7 +141,7 @@ def _refresh_home() -> dict:
 
     try:
         if shops:
-            take_turns([shop.id for shop in shops], pull)
+            take_turns([shop.id for shop in shops], pull, workers=HOME_WORKERS, lane="home")
         rows = [by_pk[shop.id] for shop in shops if shop.id in by_pk]
         previous = fund_cache.read(_CACHE) or []
         rows = merge_kept(previous if isinstance(previous, list) else [], rows)

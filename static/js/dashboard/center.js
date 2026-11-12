@@ -447,12 +447,9 @@
             if (item.sync_error) {
                 return "<tr>" + name + login + '<td colspan="7" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
             }
-            var hasTickets = Array.isArray(item.pending_violation_ids);
-            var ticketIds = hasTickets ? (item.pending_violation_ids.join(",") || "-") : "";
             var violation = '<td><button type="button" class="center-jump" data-vio-shop="'
-                + Dash.escapeHtml(String(item.store_pk)) + '"'
-                + (hasTickets ? ' data-vio-ids="' + Dash.escapeHtml(ticketIds) + '"' : "")
-                + ">" + Dash.escapeHtml(homeNumber(item.pending_violation)) + "</button></td>";
+                + Dash.escapeHtml(String(item.store_pk)) + '">'
+                + Dash.escapeHtml(homeNumber(item.pending_violation)) + "</button></td>";
             return "<tr>" + name + login
                 + "<td>" + Dash.escapeHtml(homeNumber(item.pending_pay)) + "</td>"
                 + "<td>" + Dash.escapeHtml(homeNumber(item.pending_ship)) + "</td>"
