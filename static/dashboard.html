@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=16">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=17">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=10">
 </head>
@@ -32,6 +32,10 @@
             <a class="nav-item nav-sub" data-view="fund-account" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>
                 <span>账户中心</span>
+            </a>
+            <a class="nav-item nav-sub" data-view="invoices" href="javascript:void(0)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+                <span>发票管理</span>
             </a>
         </nav>
         <div class="sidebar-footer">v1.0.0</div>
@@ -108,6 +112,58 @@
                             </thead>
                             <tbody id="account-tbody">
                             <tr><td colspan="16" class="empty">打开后加载</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+            <section class="view" id="view-invoices">
+                <div class="panel">
+                    <div class="toolbar">
+                        <p class="form-hint">我给平台开票看待开票账单。给消费者开票看待开票。点拉取最新向抖店要数量。</p>
+                        <div class="toolbar-actions">
+                            <input id="invoice-search" type="search" placeholder="搜索店铺">
+                            <select id="invoice-owner"><option value="">全部归属账号</option></select>
+                            <button class="btn btn-primary" id="btn-refresh-invoices" type="button">拉取最新</button>
+                        </div>
+                    </div>
+                    <p class="form-hint" id="invoice-updated"></p>
+                    <div class="invoice-stats">
+                        <div class="invoice-stat">
+                            <span>我给平台开票</span>
+                            <strong id="invoice-platform-pending">—</strong>
+                            <small>待开票账单</small>
+                        </div>
+                        <div class="invoice-stat">
+                            <span>平台处理中</span>
+                            <strong id="invoice-platform-processing">—</strong>
+                            <small>处理中</small>
+                        </div>
+                        <div class="invoice-stat">
+                            <span>平台历史</span>
+                            <strong id="invoice-platform-finished">—</strong>
+                            <small>历史处理记录</small>
+                        </div>
+                        <div class="invoice-stat">
+                            <span>给消费者开票</span>
+                            <strong id="invoice-consumer-pending">—</strong>
+                            <small>待开票</small>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                            <tr>
+                                <th>店铺</th>
+                                <th>归属账号</th>
+                                <th>平台待开票</th>
+                                <th>平台处理中</th>
+                                <th>平台历史</th>
+                                <th>消费者待开票</th>
+                            </tr>
+                            </thead>
+                            <tbody id="invoice-tbody">
+                            <tr><td colspan="6" class="empty">打开后加载</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -365,9 +421,10 @@
 </div>
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
-<script src="/static/js/dashboard/core.js?v=11"></script>
+<script src="/static/js/dashboard/core.js?v=12"></script>
 <script src="/static/js/dashboard/stores.js?v=10"></script>
 <script src="/static/js/dashboard/accounts.js?v=7"></script>
+<script src="/static/js/dashboard/invoices.js?v=1"></script>
 <script src="/static/js/dashboard/violations.js?v=16"></script>
 <script src="/static/js/dashboard/center.js?v=22"></script>
 </body>

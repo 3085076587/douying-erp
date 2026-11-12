@@ -282,3 +282,17 @@ th.sortable.sort-desc::after { content: " ↓"; }
     .topbar-right { margin-left: auto; }
     .content { padding: 14px; }
 }
+
+#view-invoices .toolbar { align-items: flex-start; }
+#view-invoices .toolbar .form-hint { flex: 1; min-width: 280px; line-height: 1.6; margin: 0; }
+.invoice-stats { display: flex; gap: 12px; margin: 8px 0 12px; flex-wrap: wrap; }
+.invoice-stat {
+    flex: 1;
+    min-width: 140px;
+    border: 1px solid #e7e5e4;
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: #fff;
+}
+.invoice-stat span, .invoice-stat small { display: block; color: var(--text-secondary); font-size: 13px; }
+.invoice-stat strong { display: block; margin: 4px 0; font-size: 28px; font-weight: 650; }

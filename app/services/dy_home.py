@@ -6,22 +6,23 @@ from typing import Any
 from app.services.dy_client import request_shop
 
 _HOME_PATH = "/pc/api/home/homepage"
+# 店铺首页蓝条用的是这一版。不带版本时接口给的是旧待办，异常包裹没有，待整改风险点会落到「可整改」。
+_HOME_VERSION = "202606240"
 _FIELDS = (
     ("pending_pay", ("unpaid",), ""),
     ("pending_ship", ("unsend",), ""),
-    ("abnormal_package", ("abnormal_package", "exception_package"), "包裹"),
+    ("abnormal_package", ("abnormal_package", "exception_package"), "异常包裹"),
     ("pending_aftersale", ("unprocess",), ""),
     ("service_ticket", ("service_order",), ""),
-    ("risk_point", ("can_be_corrected",), "整改"),
+    ("risk_point", ("to_berectified_risk",), "待整改风险点"),
     ("pending_violation", ("violation_pending",), ""),
 )
 
 
 def _todo_rows(node: Any, found: list[dict]) -> None:
     if isinstance(node, dict):
-        if node.get("agg_name") and "title" in node and "val" in node:
+        if "title" in node and "val" in node and (node.get("key") or node.get("agg_name")):
             found.append(node)
-            return
         for value in node.values():
             _todo_rows(value, found)
     elif isinstance(node, list):
@@ -55,5 +56,5 @@ def parse_home_todos(data: dict) -> dict[str, str]:
 
 
 def fetch_home_todos(cookies: dict[str, str]) -> dict[str, str]:
-    data = request_shop(cookies, "GET", _HOME_PATH)
+    data = request_shop(cookies, "GET", _HOME_PATH, params={"homepage_version": _HOME_VERSION})
     return parse_home_todos(data if isinstance(data, dict) else {})
