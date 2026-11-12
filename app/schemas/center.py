@@ -33,6 +33,7 @@ class CenterProgress(BaseModel):
     total: int = 0
     failed: int = 0
     message: str = ""
+    fresh: bool = False
 
 
 class CenterHomeRow(BaseModel):

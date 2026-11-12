@@ -6,6 +6,8 @@
     var shops = [];
     var latest = null;
     var homeData = null;
+    var homeTimer = null;
+    var homePretend = null;
     var shopData = null;
     var shopTimer = null;
     var productData = null;
@@ -472,6 +474,126 @@
         });
     }
 
+    function stopHomePretend() {
+        if (!homePretend) return;
+        clearTimeout(homePretend);
+        homePretend = null;
+    }
+
+    function paintHomeProgress(state) {
+        var box = el("center-home-progress");
+        var running = !!(state && state.running && centerVisible() && tab === "home");
+        if (tab === "home" && !homePretend) {
+            el("btn-refresh-center").disabled = running;
+            el("btn-center-query").disabled = running;
+        }
+        if (!running) {
+            if (!homePretend) {
+                box.classList.add("hidden");
+                el("center-home-bar").style.width = "0";
+            }
+            return;
+        }
+        box.classList.remove("hidden");
+        var total = state.total || 0;
+        var done = state.done || 0;
+        el("center-home-bar").style.width = (total ? Math.min(100, Math.round(done / total * 100)) : 8) + "%";
+        el("center-home-progress-text").textContent = total
+            ? ("正在拉取店铺首页 " + done + " / " + total + " 家")
+            : "正在拉取店铺首页…";
+    }
+
+    function watchHome() {
+        if (!centerVisible() || tab !== "home") {
+            homeTimer = null;
+            if (!homePretend) {
+                el("center-home-progress").classList.add("hidden");
+                el("center-home-bar").style.width = "0";
+            }
+            if (!centerVisible() && !homePretend) {
+                el("btn-refresh-center").disabled = false;
+                el("btn-center-query").disabled = false;
+            }
+            return;
+        }
+        Dash.request("/center/home/progress").then(function (state) {
+            paintHomeProgress(state);
+            if (state.running) {
+                homeTimer = setTimeout(watchHome, 1000);
+                return;
+            }
+            homeTimer = null;
+            if (state.failed && tab === "home") Dash.showToast(state.message || "有店铺没有拉到", "error");
+            loadHome();
+        }).catch(function () {
+            homeTimer = setTimeout(watchHome, 2000);
+        });
+    }
+
+    function pretendHome() {
+        stopHomePretend();
+        var box = el("center-home-progress");
+        var bar = el("center-home-bar");
+        var steps = [16, 41, 68, 88, 100];
+        var index = 0;
+        box.classList.remove("hidden");
+        el("center-home-progress-text").textContent = "正在拉取店铺首页…";
+        el("btn-refresh-center").disabled = true;
+        el("btn-center-query").disabled = true;
+        function finish() {
+            homePretend = null;
+            box.classList.add("hidden");
+            bar.style.width = "0";
+            el("btn-refresh-center").disabled = false;
+            el("btn-center-query").disabled = false;
+            if (centerVisible() && tab === "home") loadHome();
+        }
+        function tick() {
+            if (!centerVisible() || tab !== "home") {
+                finish();
+                return;
+            }
+            bar.style.width = steps[index] + "%";
+            index += 1;
+            if (index < steps.length) {
+                homePretend = setTimeout(tick, 420);
+                return;
+            }
+            homePretend = setTimeout(finish, 280);
+        }
+        tick();
+    }
+
+    function refreshHome() {
+        var button = el("btn-refresh-center");
+        if (button.disabled || homePretend || homeTimer) return;
+        button.disabled = true;
+        el("btn-center-query").disabled = true;
+        Dash.request("/center/home/refresh", { method: "POST" }).then(function (state) {
+            if (state.fresh) {
+                pretendHome();
+                return;
+            }
+            paintHomeProgress(state);
+            if (homeTimer) return;
+            watchHome();
+        }).catch(function (err) {
+            button.disabled = false;
+            el("btn-center-query").disabled = false;
+            Dash.showToast(err.message || "拉取失败", "error");
+        });
+    }
+
+    function resumeHome() {
+        if (homePretend || homeTimer || tab !== "home") return;
+        Dash.request("/center/home/progress").then(function (state) {
+            if (tab !== "home" || homePretend) return;
+            if (!state.running) return;
+            paintHomeProgress(state);
+            watchHome();
+        }).catch(function () {});
+    }
+
     function metricCell(value) {
         return '<td><div class="center-shop-value">' + Dash.escapeHtml(value || "—") + "</div></td>";
     }
@@ -874,6 +996,17 @@
 
     function showTab(name) {
         rememberToolbar();
+        if (tab === "home" && name !== "home") {
+            stopHomePretend();
+            if (homeTimer) {
+                clearTimeout(homeTimer);
+                homeTimer = null;
+            }
+            el("center-home-progress").classList.add("hidden");
+            el("center-home-bar").style.width = "0";
+            el("btn-refresh-center").disabled = false;
+            el("btn-center-query").disabled = false;
+        }
         tab = name || "overview";
         document.querySelectorAll("[data-center-tab]").forEach(function (btn) {
             btn.classList.toggle("active", btn.getAttribute("data-center-tab") === tab);
@@ -895,6 +1028,7 @@
         paintSchedule();
         paintShellFilters();
         if (tab === "overview") ensureOverview();
+        if (tab === "home") resumeHome();
         if (tab === "shops") ensureShops();
         if (tab === "products") ensureProducts();
     }
@@ -990,9 +1124,9 @@
         });
         el("btn-refresh-center").addEventListener("click", function () {
             if (tab === "overview") refresh();
+            else if (tab === "home") refreshHome();
             else if (tab === "shops") refreshShops();
             else if (tab === "products") refreshProducts();
-            else paintHome();
         });
         el("btn-center-query").addEventListener("click", function () {
             if (tab === "overview") refresh();

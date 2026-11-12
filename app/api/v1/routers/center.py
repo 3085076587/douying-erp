@@ -25,7 +25,7 @@ from app.services.center_service import (
     start_refresh,
     start_shop_refresh,
 )
-from app.services.home_service import read_home
+from app.services.home_service import home_progress, read_home, start_home_refresh
 from app.services.dy_client import ShopApiError, ShopAuthError
 
 router = APIRouter(prefix="/center", tags=["数据总览"])
@@ -69,6 +69,16 @@ def home(
     _user=Depends(get_current_user),
 ) -> CenterHomeList:
     return CenterHomeList.model_validate(read_home(db))
+
+
+@router.get("/home/progress", response_model=CenterProgress, summary="店铺首页拉取进度")
+def home_pull_progress(_user=Depends(get_current_user)) -> CenterProgress:
+    return CenterProgress.model_validate(home_progress())
+
+
+@router.post("/home/refresh", response_model=CenterProgress, summary="重新拉取店铺首页待办")
+def home_refresh(_user=Depends(get_current_user)) -> CenterProgress:
+    return CenterProgress.model_validate(start_home_refresh())
 
 
 @router.get("/shops", response_model=CenterShopList, summary="各店经营概况")
