@@ -7,6 +7,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from app.services.fetch_pace import call_paced
+
 _HOST = "https://fxg.jinritemai.com"
 _SSO = "https://doudian-sso.jinritemai.com"
 FXG_HOST = "fxg.jinritemai.com"
@@ -91,28 +93,32 @@ def request_shop(
         "Accept": "application/json, text/plain, */*",
     }
     url = host + path if path.startswith("/") else path
-    try:
-        response = _CLIENT.request(
-            method,
-            url,
-            params=params,
-            data=data,
-            json=json_body,
-            cookies=_cookies(cookies),
-            headers=headers,
-        )
-    except httpx.HTTPError as exc:
-        raise ShopApiError("抖店暂时连不上") from exc
-    if response.status_code in {401, 403}:
-        raise ShopAuthError("登录已失效")
-    fresh = absorb_cookies(cookies, response)
-    cookies.clear()
-    cookies.update(fresh)
-    try:
-        payload = response.json()
-    except json.JSONDecodeError as exc:
-        raise ShopApiError("抖店返回了无法识别的内容") from exc
-    return _raise_for_body(payload)
+
+    def once() -> dict:
+        try:
+            response = _CLIENT.request(
+                method,
+                url,
+                params=params,
+                data=data,
+                json=json_body,
+                cookies=_cookies(cookies),
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            raise ShopApiError("抖店暂时连不上") from exc
+        if response.status_code in {401, 403}:
+            raise ShopAuthError("登录已失效")
+        fresh = absorb_cookies(cookies, response)
+        cookies.clear()
+        cookies.update(fresh)
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as exc:
+            raise ShopApiError("抖店返回了无法识别的内容") from exc
+        return _raise_for_body(payload)
+
+    return call_paced(once)
 
 
 def absorb_cookies(cookies: dict[str, str], response: httpx.Response) -> dict[str, str]:
@@ -157,6 +163,20 @@ def enter_listed_shop(
     login_source: str,
 ) -> dict[str, str]:
     """选店会话还在、但还没进到这家店时，用名单里的成员编号进入。"""
+
+    def once() -> dict[str, str]:
+        return _enter_listed_shop(cookies, shop_id, host=host, login_source=login_source)
+
+    return call_paced(once)
+
+
+def _enter_listed_shop(
+    cookies: dict[str, str],
+    shop_id: str,
+    *,
+    host: str,
+    login_source: str,
+) -> dict[str, str]:
     headers = {
         "User-Agent": _UA,
         "Referer": f"https://{host}/",

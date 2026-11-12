@@ -3,12 +3,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
-from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.shop import Shop
 from app.services import fund_cache
@@ -16,6 +14,7 @@ from app.services.dy_client import FXG_HOST, ShopApiError, ShopAuthError, cookie
 from app.services.dy_home import fetch_home_todos
 from app.services.dy_violation import fetch_appeal_ticket_ids
 from app.services.schedule_log import write_fail, write_success
+from app.services.fetch_pace import merge_kept, take_turns
 from app.services.store_service import keep_shop_jar
 
 _LOG = logging.getLogger("uvicorn.error")
@@ -43,13 +42,6 @@ def next_home_wait(now: datetime | None = None) -> float:
             slot = slot + timedelta(days=1)
         slots.append(slot)
     return max(5.0, (min(slots) - now).total_seconds())
-
-
-def _workers(count: int) -> int:
-    if count < 1:
-        return 1
-    configured = max(1, min(int(get_settings().fetch_workers or 3), 8))
-    return min(configured, count)
 
 
 def _blank(shop: Shop, error: str = "") -> dict:
@@ -100,19 +92,21 @@ def refresh_home() -> dict:
         shops = list(db.scalars(select(Shop).order_by(Shop.id.asc())))
     finally:
         db.close()
-    rows: list[dict] = []
-    lock = threading.Lock()
+    by_pk: dict[int, dict] = {}
+    gate = threading.Lock()
 
-    def pull(shop_id: int) -> None:
+    def pull(shop_id: int) -> dict:
         row = _pull_one(shop_id)
         if row.get("store_pk"):
-            with lock:
-                rows.append(row)
+            with gate:
+                by_pk[int(row["store_pk"])] = row
+        return row
 
     if shops:
-        with ThreadPoolExecutor(max_workers=_workers(len(shops))) as pool:
-            list(pool.map(pull, [shop.id for shop in shops]))
-    rows.sort(key=lambda item: int(item.get("store_pk") or 0))
+        take_turns([shop.id for shop in shops], pull)
+    rows = [by_pk[shop.id] for shop in shops if shop.id in by_pk]
+    previous = fund_cache.read(_CACHE) or []
+    rows = merge_kept(previous if isinstance(previous, list) else [], rows)
     updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     fund_cache.write(_CACHE, rows, _TTL_SECONDS)
     fund_cache.write_obj(_META, {"updated_at": updated_at}, _TTL_SECONDS)

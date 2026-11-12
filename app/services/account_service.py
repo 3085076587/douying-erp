@@ -1,10 +1,9 @@
-"""账户中心：余额、保证金、拉取和提现。多家店并行，进度互不影响。"""
+"""账户中心：余额、保证金、拉取和提现。定时更新一家一家拉，限流的店等一会儿再取。"""
 from __future__ import annotations
 
 import json
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +15,7 @@ from app.db.session import SessionLocal
 from app.models.account import ShopAccount
 from app.models.shop import Shop
 from app.services import fund_cache
+from app.services.fetch_pace import take_turns
 from app.services.dy_account import (
     base_refund_detail,
     experience_refund_check,
@@ -66,13 +66,6 @@ _LIVE_KEYS = (
 def cache_ttl_seconds() -> int:
     hours = max(1, min(int(get_settings().data_refresh_hours or 1), 48))
     return hours * 3600 + 3600
-
-
-def worker_count(job_count: int) -> int:
-    """每家店凭证互相独立，20 家可以一起拉。违规拉取仍用自己的并发上限。"""
-    if job_count < 1:
-        return 0
-    return min(job_count, 20)
 
 
 def _fen(value: Any) -> int | None:
@@ -364,18 +357,6 @@ def progress() -> dict:
         return dict(_PROGRESS_SLOT)
 
 
-def _pull_group(shop_ids: list[int]) -> list[dict]:
-    """同一套登录凭证里的店要串行切换，不同凭证可以并行。"""
-    rows = []
-    for shop_id in shop_ids:
-        row = _pull_one(shop_id)
-        if row:
-            rows.append(row)
-        with _PROGRESS:
-            _PROGRESS_SLOT["done"] = min(_PROGRESS_SLOT["total"], _PROGRESS_SLOT["done"] + 1)
-    return rows
-
-
 def refresh_accounts(db: Session, force: bool = False) -> list[dict]:
     """只用已经单独存下登录凭证的店去向抖店要金额。金额写入 Redis。"""
     shops = [
@@ -387,13 +368,22 @@ def refresh_accounts(db: Session, force: bool = False) -> list[dict]:
         with _PROGRESS:
             _PROGRESS_SLOT.update(running=False, done=0, total=0)
         return list_saved_accounts(db)
-    groups = {str(shop.id): [shop.id] for shop in shops}
-    workers = worker_count(len(groups))
+    seen: set[int] = set()
     with _PROGRESS:
         _PROGRESS_SLOT.update(running=True, done=0, total=len(shops))
+
+    gate = threading.Lock()
+
+    def pull(shop_id: int) -> dict:
+        row = _pull_one(shop_id) or {}
+        with gate:
+            seen.add(shop_id)
+            with _PROGRESS:
+                _PROGRESS_SLOT["done"] = min(int(_PROGRESS_SLOT["total"]), len(seen))
+        return row
+
     try:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            list(pool.map(_pull_group, list(groups.values())))
+        take_turns([shop.id for shop in shops], pull)
     finally:
         with _PROGRESS:
             _PROGRESS_SLOT["running"] = False

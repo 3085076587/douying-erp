@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/dashboard.css?v=16">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=1">
-    <link rel="stylesheet" href="/static/css/pages/center.css?v=8">
+    <link rel="stylesheet" href="/static/css/pages/center.css?v=10">
 </head>
 <body>
 <div class="layout">
@@ -221,8 +221,14 @@
                             <table class="data-table">
                                 <thead>
                                 <tr>
-                                    <th>店铺名称</th><th>登录</th><th>待支付</th><th>待发货</th><th>异常包裹</th>
-                                    <th>待处理售后</th><th>服务工单</th><th>待整改风险点</th><th>待处理违规</th>
+                                    <th>店铺名称</th><th>登录</th>
+                                    <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="pending_pay" data-sort-label="待支付">待支付</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="pending_ship" data-sort-label="待发货">待发货</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="abnormal_package" data-sort-label="异常包裹">异常包裹</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="pending_aftersale" data-sort-label="待处理售后">待处理售后</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="service_ticket" data-sort-label="服务工单">服务工单</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="risk_point" data-sort-label="待整改风险点">待整改风险点</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="pending_violation" data-sort-label="待处理违规">待处理违规</button></th>
                                 </tr>
                                 </thead>
                                 <tbody id="center-home-tbody">
@@ -363,6 +369,6 @@
 <script src="/static/js/dashboard/stores.js?v=10"></script>
 <script src="/static/js/dashboard/accounts.js?v=7"></script>
 <script src="/static/js/dashboard/violations.js?v=16"></script>
-<script src="/static/js/dashboard/center.js?v=17"></script>
+<script src="/static/js/dashboard/center.js?v=21"></script>
 </body>
 </html>

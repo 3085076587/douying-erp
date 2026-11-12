@@ -165,10 +165,10 @@ def fetch_violation_list(
             total = 0
         tickets = data.get("tickets") if isinstance(data.get("tickets"), list) else []
         if not tickets:
-            # 总数还没拿够却返回空，通常是限流，等 60 秒再试同一页
-            if rows and len(rows) < total and empty_retries < 2:
+            # 总数还没拿够却返回空，通常是限流，等一会儿再试同一页
+            if rows and len(rows) < total and empty_retries < 6:
                 empty_retries += 1
-                time.sleep(60)
+                time.sleep(min(8 * empty_retries, 30))
                 continue
             break
         empty_retries = 0

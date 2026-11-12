@@ -10,7 +10,6 @@ import json
 import logging
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -22,6 +21,7 @@ from app.db.session import SessionLocal
 from app.models.shop import Shop
 from app.models.violation import DyViolation
 from app.services import fund_cache
+from app.services.fetch_pace import take_turns
 from app.services.dy_client import (
     FXG_HOST,
     ShopApiError,
@@ -284,13 +284,6 @@ def summarize_description(text: str, limit: int = DESC_LIMIT) -> str:
 
 def cache_key(store_pk: int) -> str:
     return f"dy:violation:{store_pk}"
-
-
-def worker_count(job_count: int) -> int:
-    if job_count < 1:
-        return 0
-    configured = max(1, min(int(get_settings().fetch_workers or 3), 32))
-    return min(configured, job_count)
 
 
 def progress() -> dict:
@@ -581,8 +574,8 @@ def _pull_one(store_pk: int, start_ts: int, end_ts: int, force: bool) -> tuple[b
         _upsert_rows(db, shop, items)
         fund_cache.write(cache_key(shop.id), items, CACHE_TTL_SECONDS)
         if platform_total > len(items):
-            # 分页没取全（多为限流），只记日志，不阻断入库
-            _LOG.warning("店铺 %s 应有 %s 条，实际取到 %s 条", shop.name, platform_total, len(items))
+            _LOG.warning("违规记录还没取全，应有 %s 条，实际 %s 条", platform_total, len(items))
+            return False, "请求过于频繁，请稍后再试", len(items)
         return True, "", len(items)
     except Exception:
         _LOG.exception("拉取抖店 %s 违规失败", store_pk)
@@ -612,19 +605,33 @@ def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual
             last_trigger=trigger,
         )
         return
-    workers = worker_count(len(targets))
-    reasons: list[str] = []
-    stats = {"with_violation": 0, "rows": 0, "clear": 0}
+    results: dict[int, tuple[bool, str, int]] = {}
+    seen: set[int] = set()
     with _PROGRESS:
         _PROGRESS_SLOT.update(
             running=True, done=0, total=len(targets), failed=0, message="", trigger=trigger
         )
 
-    def pull_group(store_pk: int) -> None:
-        ok, reason, total = _pull_one(store_pk, start_ts, end_ts, force)
-        with _PROGRESS:
+    gate = threading.Lock()
+
+    def pull(store_pk: int) -> tuple[bool, str, int]:
+        result = _pull_one(store_pk, start_ts, end_ts, force)
+        with gate:
+            results[store_pk] = result
+            seen.add(store_pk)
+            with _PROGRESS:
+                _PROGRESS_SLOT["done"] = min(int(_PROGRESS_SLOT["total"]), len(seen))
+        return result
+
+    try:
+        take_turns([pk for pk, _name in targets], pull)
+    finally:
+        stats = {"with_violation": 0, "rows": 0, "clear": 0}
+        reasons: list[str] = []
+        failed = 0
+        for _pk, (ok, reason, total) in results.items():
             if not ok:
-                _PROGRESS_SLOT["failed"] = int(_PROGRESS_SLOT.get("failed") or 0) + 1
+                failed += 1
                 if reason and reason not in reasons and len(reasons) < 3:
                     reasons.append(reason)
             elif total > 0:
@@ -632,30 +639,22 @@ def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual
                 stats["rows"] += total
             elif total == 0:
                 stats["clear"] += 1
-            _PROGRESS_SLOT["done"] = min(int(_PROGRESS_SLOT["total"]), int(_PROGRESS_SLOT["done"]) + 1)
-
-    try:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            list(pool.map(pull_group, [pk for pk, _name in targets]))
-    finally:
+        ok_count = max(0, len(targets) - failed)
+        parts = []
+        if stats["with_violation"]:
+            parts.append(f"{stats['with_violation']} 家有违规（共 {stats['rows']} 条）")
+        if stats["clear"]:
+            parts.append(f"{stats['clear']} 家没有查到违规记录")
+        if failed:
+            parts.append(f"{failed} 家拉取失败")
+        detail = "，".join(parts) if parts else "没有可统计的店铺"
+        message = f"{ok_count} 家完成：{detail}"
+        if failed and reasons:
+            message += f"（{'；'.join(reasons)}）"
         with _PROGRESS:
-            failed = int(_PROGRESS_SLOT.get("failed") or 0)
-            ok_count = max(0, len(targets) - failed)
-            parts = []
-            if stats["with_violation"]:
-                parts.append(f"{stats['with_violation']} 家有违规（共 {stats['rows']} 条）")
-            if stats["clear"]:
-                parts.append(f"{stats['clear']} 家没有查到违规记录")
-            if failed:
-                parts.append(f"{failed} 家拉取失败")
-            detail = "，".join(parts) if parts else "没有可统计的店铺"
-            message = f"{ok_count} 家完成：{detail}"
-            if failed and reasons:
-                message += f"（{'；'.join(reasons)}）"
             _PROGRESS_SLOT.update(
-                running=False, done=int(_PROGRESS_SLOT["total"]), message=message
+                running=False, done=int(_PROGRESS_SLOT["total"]), failed=failed, message=message
             )
-        # 记下这次更新的时间和结果，页面上的「上一次更新」就取这里
         write_state(
             last_update=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             last_message=message,
@@ -664,8 +663,7 @@ def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual
             last_trigger=trigger,
         )
     _LOG.info("违规与预警更新结束，%s 家：有违规 %s 家 %s 条，无违规 %s 家，失败 %s 家",
-              len(targets), stats["with_violation"], stats["rows"], stats["clear"],
-              int(_PROGRESS_SLOT.get("failed") or 0))
+              len(targets), stats["with_violation"], stats["rows"], stats["clear"], failed)
 
 
 def _ts_range(start_date: str, end_date: str) -> tuple[int, int]:

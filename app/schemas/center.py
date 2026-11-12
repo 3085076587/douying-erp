@@ -103,6 +103,8 @@ class CenterProductList(BaseModel):
     date_type: int = 1
     start: str = ""
     end: str = ""
+    updated_at: str = ""
+    note: str = ""
     interval_minutes: int = 10
     last_update: str = ""
     next_update: str = ""

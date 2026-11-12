@@ -4,19 +4,24 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.shop import Shop
 from app.services import fund_cache
 from app.services.dy_client import FXG_HOST, ShopApiError, ShopAuthError, cookie_store, cookies_for
-from app.services.dy_compass import fetch_financial_summary, fetch_operating_cards, fetch_product_list
+from app.services.dy_compass import (
+    ProductPartial,
+    fetch_financial_summary,
+    fetch_operating_cards,
+    fetch_product_list,
+    fetch_promotion_window,
+)
+from app.services.fetch_pace import limited_shop_ids, merge_kept, prefer_limited, take_turns
 from app.services.schedule_log import write_fail, write_success
 from app.services.store_service import keep_shop_jar
 
@@ -48,16 +53,44 @@ _RATIO_KEYS = ("out_period_ratio", "last_period_ratio", "same_period_ratio", "la
 _BENCH_TITLES = ("同行基准", "同行标杆", "同行顶尖", "同行中间值")
 
 
+def _replace_row(rows: list[dict], row: dict) -> None:
+    pk = int(row.get("store_pk") or 0)
+    for index, item in enumerate(rows):
+        if int(item.get("store_pk") or 0) == pk:
+            rows[index] = row
+            return
+    rows.append(row)
+
+
 def progress() -> dict:
     with _PROGRESS:
         return dict(_PROGRESS_SLOT)
 
 
-def _workers(count: int) -> int:
-    if count < 1:
-        return 1
-    configured = max(1, min(int(get_settings().fetch_workers or 3), 8))
-    return min(configured, count)
+_PRODUCT_PRESETS = ("realtime", "1", "7", "30")
+
+
+def _parse_day(value: str, label: str) -> date:
+    try:
+        return datetime.strptime(value.strip(), "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ShopApiError(label) from exc
+
+
+def _month_end(day: date) -> date:
+    if day.month == 12:
+        return date(day.year + 1, 1, 1) - timedelta(days=1)
+    return date(day.year, day.month + 1, 1) - timedelta(days=1)
+
+
+def _cap_closed_end(start_day: date, end_day: date) -> date:
+    """自然周、自然月没过完时，结束日停在昨天。罗盘不接受还没到的日期。"""
+    latest = date.today() - timedelta(days=1)
+    if start_day > latest:
+        latest = start_day
+    if end_day > latest:
+        return latest
+    return end_day
 
 
 def resolve_span(preset: str, start: str = "", end: str = "") -> tuple[int, date, date]:
@@ -75,6 +108,25 @@ def resolve_span(preset: str, start: str = "", end: str = "") -> tuple[int, date
     if preset == "30":
         end_day = today - timedelta(days=1)
         return 23, end_day - timedelta(days=29), end_day
+    if preset == "day":
+        anchor = _parse_day(start, "请选择自然日") if start.strip() else today - timedelta(days=1)
+        if anchor > today or anchor < today - timedelta(days=180):
+            raise ShopApiError("自然日只能选今天往前 180 天")
+        return 2, anchor, anchor
+    if preset == "week":
+        anchor = _parse_day(start, "请选择自然周") if start.strip() else today - timedelta(days=1)
+        if anchor > today or anchor < today - timedelta(days=180):
+            raise ShopApiError("自然周只能选今天往前 180 天")
+        monday = anchor - timedelta(days=anchor.weekday())
+        return 3, monday, _cap_closed_end(monday, monday + timedelta(days=6))
+    if preset == "month":
+        anchor = _parse_day(start, "请选择自然月") if start.strip() else today - timedelta(days=1)
+        if anchor > today or anchor < today - timedelta(days=180):
+            raise ShopApiError("自然月只能选今天往前 180 天")
+        first = anchor.replace(day=1)
+        return 4, first, _cap_closed_end(first, _month_end(first))
+    if preset == "promotion":
+        return 100, today, today
     if preset == "custom":
         try:
             start_day = datetime.strptime(start.strip(), "%Y-%m-%d").date()
@@ -439,26 +491,26 @@ def _refresh(preset: str, start: str, end: str) -> None:
     with _PROGRESS:
         _PROGRESS_SLOT.update(running=True, done=0, total=len(shops), failed=0, message="")
     rows: list[dict] = []
-    rows_lock = threading.Lock()
+    cache_key = _span_key(preset, start_day, end_day)
+    previous = list((_load_overview(cache_key) or {}).get("items") or [])
+    shop_ids = prefer_limited([shop.id for shop in shops], limited_shop_ids(previous))
 
-    def pull(shop_id: int) -> None:
+    def pull(shop_id: int) -> dict:
         row = _pull_one(shop_id, date_type, start_day, end_day)
-        if row.get("store_pk"):
-            with rows_lock:
-                rows.append(row)
         with _PROGRESS:
-            if row.get("sync_error"):
-                _PROGRESS_SLOT["failed"] = int(_PROGRESS_SLOT.get("failed") or 0) + 1
-            _PROGRESS_SLOT["done"] = min(int(_PROGRESS_SLOT["total"]), int(_PROGRESS_SLOT["done"]) + 1)
+            if row.get("store_pk"):
+                _replace_row(rows, row)
+            _PROGRESS_SLOT["done"] = min(int(_PROGRESS_SLOT["total"]), len(rows))
+        return row
 
     try:
         if shops:
-            with ThreadPoolExecutor(max_workers=_workers(len(shops))) as pool:
-                list(pool.map(pull, [shop.id for shop in shops]))
+            take_turns(shop_ids, pull)
+        rows = merge_kept(previous, rows)
         rows.sort(key=lambda item: int(item.get("store_pk") or 0))
-        failed = int(_PROGRESS_SLOT.get("failed") or 0)
+        failed = sum(1 for row in rows if row.get("sync_error"))
         message = f"{len(shops) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")
-        _remember_overview(_span_key(preset, start_day, end_day), preset, date_type, start_day, end_day, rows)
+        _remember_overview(cache_key, preset, date_type, start_day, end_day, rows)
         with _PROGRESS:
             _PROGRESS_SLOT.update(done=len(shops), failed=failed, message=message or "完成")
     except Exception:
@@ -714,26 +766,26 @@ def _refresh_shops(preset: str, start: str, end: str) -> None:
     with _SHOP_PROGRESS:
         _SHOP_PROGRESS_SLOT.update(running=True, done=0, total=len(shops), failed=0, message="")
     rows: list[dict] = []
-    rows_lock = threading.Lock()
+    cache_key = _span_key(preset, start_day, end_day)
+    previous = list((_load_shops(cache_key) or {}).get("items") or [])
+    shop_ids = prefer_limited([shop.id for shop in shops], limited_shop_ids(previous))
 
-    def pull(shop_id: int) -> None:
+    def pull(shop_id: int) -> dict:
         row = _pull_shop(shop_id, date_type, start_day, end_day)
-        if row.get("store_pk"):
-            with rows_lock:
-                rows.append(row)
         with _SHOP_PROGRESS:
-            if row.get("sync_error"):
-                _SHOP_PROGRESS_SLOT["failed"] = int(_SHOP_PROGRESS_SLOT.get("failed") or 0) + 1
-            _SHOP_PROGRESS_SLOT["done"] = min(int(_SHOP_PROGRESS_SLOT["total"]), int(_SHOP_PROGRESS_SLOT["done"]) + 1)
+            if row.get("store_pk"):
+                _replace_row(rows, row)
+            _SHOP_PROGRESS_SLOT["done"] = min(int(_SHOP_PROGRESS_SLOT["total"]), len(rows))
+        return row
 
     try:
         if shops:
-            with ThreadPoolExecutor(max_workers=_workers(len(shops))) as pool:
-                list(pool.map(pull, [shop.id for shop in shops]))
+            take_turns(shop_ids, pull)
+        rows = merge_kept(previous, rows)
         rows.sort(key=lambda item: int(item.get("store_pk") or 0))
-        failed = int(_SHOP_PROGRESS_SLOT.get("failed") or 0)
+        failed = sum(1 for row in rows if row.get("sync_error"))
         message = f"{len(shops) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")
-        _remember_shops(_span_key(preset, start_day, end_day), preset, date_type, start_day, end_day, rows)
+        _remember_shops(cache_key, preset, date_type, start_day, end_day, rows)
         with _SHOP_PROGRESS:
             _SHOP_PROGRESS_SLOT.update(done=len(shops), failed=failed, message=message or "完成")
     except Exception:
@@ -806,7 +858,7 @@ _PRODUCT_KEYS = (
 _PRODUCT_JOB = threading.Lock()
 _PRODUCT_PROGRESS = threading.Lock()
 _PRODUCT_PROGRESS_SLOT: dict[str, object] = {"running": False, "done": 0, "total": 0, "failed": 0, "message": ""}
-_PRODUCT_PENDING: dict[str, str] | None = None
+_PRODUCT_PENDING: dict | None = None
 _PRODUCT_CACHE: dict[str, dict] = {}
 
 
@@ -869,58 +921,175 @@ def _product_row(shop: Shop, info: dict | None = None, error: str = "") -> dict:
     return row
 
 
-def _pull_products(shop_id: int, date_type: int, start_day: date, end_day: date) -> list[dict]:
+def _shape_product_rows(shop: Shop, raw_rows: list[dict]) -> list[dict]:
+    shaped = []
+    for raw in raw_rows:
+        info = raw.get("cell_info") if isinstance(raw, dict) else None
+        if isinstance(info, dict):
+            shaped.append(_product_row(shop, info))
+    if not shaped:
+        return [_product_row(shop)]
+    return shaped
+
+
+def _kept_products(span_key: str, store_pk: int) -> tuple[int, list[dict]]:
+    """上一轮停在某一页时，返回那一页和已经入库的商品。完整结果从第 1 页重拉。"""
+    items = list((_load_products(span_key) or {}).get("items") or [])
+    kept: list[dict] = []
+    resume = 1
+    for row in items:
+        if not isinstance(row, dict):
+            continue
+        try:
+            pk = int(row.get("store_pk") or 0)
+        except (TypeError, ValueError):
+            continue
+        if pk != store_pk:
+            continue
+        try:
+            page = int(row.get("resume_page") or 0)
+        except (TypeError, ValueError):
+            page = 0
+        if page > 1:
+            resume = page
+            continue
+        if row.get("sync_error") or not row.get("product_id"):
+            continue
+        kept.append(row)
+    if resume <= 1:
+        return 1, []
+    return resume, kept
+
+
+def _join_products(shop: Shop, kept: list[dict], raw_rows: list[dict]) -> list[dict]:
+    fresh = [row for row in _shape_product_rows(shop, raw_rows) if row.get("product_id")] if raw_rows else []
+    if kept:
+        return kept + fresh
+    if fresh:
+        return fresh
+    return _shape_product_rows(shop, [])
+
+
+def _partial_rows(shop: Shop, kept: list[dict], exc: ProductPartial) -> list[dict]:
+    fresh = [row for row in _shape_product_rows(shop, exc.rows) if row.get("product_id")] if exc.rows else []
+    body = list(kept) + fresh
+    marker = _product_row(shop, error=exc.message or "罗盘接口失败")
+    if body and exc.page_no > 1:
+        marker["resume_page"] = exc.page_no
+        return body + [marker]
+    return [marker]
+
+
+def _pull_product_spans(shop_id: int, spans: list[dict]) -> dict[str, list[dict]]:
+    """一家店一次进罗盘，把这一轮要的时间都拉完。登录失效后不再重复打。"""
     db = SessionLocal()
     shop: Shop | None = None
+    empty = {span["key"]: [] for span in spans}
     try:
         shop = db.get(Shop, shop_id)
         if shop is None:
-            return []
+            return empty
         cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
         if not cookies or shop.shop_cookie != 1:
-            return [_product_row(shop, error="还没有这家店的登录凭证")]
-        try:
-            raw_rows = fetch_product_list(
-                cookies,
-                shop_id=str(shop.shop_id or ""),
-                date_type=date_type,
-                begin_date=_compass_time(start_day),
-                end_date=_compass_time(end_day),
-            )
+            row = [_product_row(shop, error="还没有这家店的登录凭证")]
+            return {span["key"]: row for span in spans}
+        out: dict[str, list[dict]] = {}
+        auth_error = ""
+        touched = False
+        for span in spans:
+            if auth_error:
+                out[span["key"]] = [_product_row(shop, error=auth_error)]
+                continue
+            start_page, kept = _kept_products(span["key"], shop.id)
+            try:
+                raw_rows = fetch_product_list(
+                    cookies,
+                    shop_id=str(shop.shop_id or ""),
+                    date_type=int(span["date_type"]),
+                    begin_date=_compass_time(span["start_day"]),
+                    end_date=_compass_time(span["end_day"]),
+                    activity_id=str(span.get("activity_id") or ""),
+                    start_page=start_page,
+                    already=len(kept),
+                )
+                touched = True
+            except ShopAuthError as exc:
+                auth_error = str(exc) or "登录已失效"
+                out[span["key"]] = [_product_row(shop, error=auth_error)]
+                continue
+            except ProductPartial as exc:
+                if exc.rows:
+                    touched = True
+                out[span["key"]] = _partial_rows(shop, kept if start_page > 1 else [], exc)
+                continue
+            except ShopApiError as exc:
+                out[span["key"]] = [_product_row(shop, error=exc.message or "罗盘接口失败")]
+                continue
+            out[span["key"]] = _join_products(shop, kept if start_page > 1 else [], raw_rows)
+        if touched:
             keep_shop_jar(shop, cookies)
             db.commit()
-        except ShopAuthError as exc:
-            return [_product_row(shop, error=str(exc) or "登录已失效")]
-        except ShopApiError as exc:
-            return [_product_row(shop, error=exc.message or "罗盘接口失败")]
-        shaped = []
-        for raw in raw_rows:
-            info = raw.get("cell_info") if isinstance(raw, dict) else None
-            if isinstance(info, dict):
-                shaped.append(_product_row(shop, info))
-        if not shaped:
-            return [_product_row(shop)]
-        return shaped
+        return out
     except Exception:
         _LOG.exception("拉取店铺 %s 商品明细失败", shop_id)
-        if shop is not None:
-            return [_product_row(shop, error="暂时没拉到")]
-        return [{"store_pk": shop_id, "name": "", "login_status": "", "sync_error": "暂时没拉到"}]
+        if shop is None:
+            row = [{"store_pk": shop_id, "name": "", "login_status": "", "sync_error": "暂时没拉到"}]
+        else:
+            row = [_product_row(shop, error="暂时没拉到")]
+        return {span["key"]: row for span in spans}
     finally:
         db.close()
+
+
+def _promotion_window(shop_ids: list[int]) -> tuple[str, date, date] | None:
+    """用第一家能读罗盘的店看当前大促。读不到就不拿别的时间冒充。"""
+    if not shop_ids:
+        return None
+    db = SessionLocal()
+    attempts = 0
+    try:
+        for shop_id in shop_ids:
+            shop = db.get(Shop, shop_id)
+            if shop is None:
+                continue
+            cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
+            if not cookies or shop.shop_cookie != 1:
+                continue
+            attempts += 1
+            try:
+                found = fetch_promotion_window(cookies, str(shop.shop_id or ""))
+            except (ShopAuthError, ShopApiError):
+                if attempts >= 3:
+                    return None
+                continue
+            keep_shop_jar(shop, cookies)
+            db.commit()
+            return found
+    finally:
+        db.close()
+    return None
 
 
 def _product_cache_kind(key: str) -> str:
     return "center_product:" + key
 
 
-def _remember_products(key: str, preset: str, date_type: int, start_day: date, end_day: date, items: list[dict]) -> None:
+def _remember_products(
+    key: str,
+    preset: str,
+    date_type: int,
+    start_day: date | None,
+    end_day: date | None,
+    items: list[dict],
+    note: str = "",
+) -> None:
     payload = {
         "preset": preset,
         "date_type": date_type,
-        "start": start_day.isoformat(),
-        "end": end_day.isoformat(),
+        "start": start_day.isoformat() if start_day else "",
+        "end": end_day.isoformat() if end_day else "",
         "items": items,
+        "note": note[:80],
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     _PRODUCT_CACHE[key] = payload
@@ -938,57 +1107,130 @@ def _load_products(key: str) -> dict | None:
     return stored
 
 
+def _product_store_key(preset: str, start_day: date, end_day: date) -> str:
+    if preset == "promotion":
+        return "promotion:current"
+    return _span_key(preset, start_day, end_day)
+
+
 def read_products(db: Session, preset: str, start: str = "", end: str = "") -> dict:
-    date_type, start_day, end_day = resolve_span(preset, start, end)
-    key = _span_key(preset, start_day, end_day)
-    payload = _load_products(key) or {}
-    items = list(payload.get("items") or [])
+    preset = (preset or "7").strip()
+    if preset == "promotion":
+        payload = _load_products("promotion:current") or {}
+        date_type = int(payload.get("date_type") or 100)
+        start_text = str(payload.get("start") or "")
+        end_text = str(payload.get("end") or "")
+    else:
+        date_type, start_day, end_day = resolve_span(preset, start, end)
+        payload = _load_products(_span_key(preset, start_day, end_day)) or {}
+        start_text = start_day.isoformat()
+        end_text = end_day.isoformat()
     data = {
         "preset": preset,
         "date_type": date_type,
-        "start": start_day.isoformat(),
-        "end": end_day.isoformat(),
-        "items": items,
+        "start": start_text,
+        "end": end_text,
+        "updated_at": str(payload.get("updated_at") or ""),
+        "note": str(payload.get("note") or ""),
+        "items": list(payload.get("items") or []),
     }
     data.update(center_schedule())
     return data
 
 
-def _refresh_products(preset: str, start: str, end: str) -> None:
-    date_type, start_day, end_day = resolve_span(preset, start, end)
+def _product_spans(jobs: list[dict], shop_ids: list[int]) -> list[dict]:
+    ready: list[dict] = []
+    for job in jobs:
+        preset = str(job.get("preset") or "").strip()
+        start = str(job.get("start") or "")
+        end = str(job.get("end") or "")
+        if preset == "promotion":
+            try:
+                window = _promotion_window(shop_ids)
+            except Exception:
+                _LOG.exception("读取大促活动失败")
+                window = None
+            if window is None:
+                _remember_products("promotion:current", "promotion", 100, None, None, [], note="当前没有大促")
+                continue
+            activity_id, start_day, end_day = window
+            ready.append({
+                "key": "promotion:current",
+                "preset": "promotion",
+                "date_type": 100,
+                "start_day": start_day,
+                "end_day": end_day,
+                "activity_id": activity_id,
+            })
+            continue
+        date_type, start_day, end_day = resolve_span(preset, start, end)
+        ready.append({
+            "key": _product_store_key(preset, start_day, end_day),
+            "preset": preset,
+            "date_type": date_type,
+            "start_day": start_day,
+            "end_day": end_day,
+            "activity_id": "",
+        })
+    return ready
+
+
+def _refresh_product_job(jobs: list[dict]) -> None:
     db = SessionLocal()
     try:
         shops = _shops(db)
     finally:
         db.close()
+    spans = _product_spans(jobs, [shop.id for shop in shops])
     with _PRODUCT_PROGRESS:
         _PRODUCT_PROGRESS_SLOT.update(running=True, done=0, total=len(shops), failed=0, message="")
-    by_shop: dict[int, list[dict]] = {}
-    rows_lock = threading.Lock()
+    by_key: dict[str, dict[int, list[dict]]] = {}
+    seen: set[int] = set()
+    limited_ids: set[int] = set()
+    for span in spans:
+        limited_ids |= limited_shop_ids(list((_load_products(span["key"]) or {}).get("items") or []))
+    shop_ids = prefer_limited([shop.id for shop in shops], limited_ids)
 
-    def pull(shop_id: int) -> None:
-        rows = _pull_products(shop_id, date_type, start_day, end_day)
-        if rows:
-            with rows_lock:
-                by_shop[shop_id] = rows
-        with _PRODUCT_PROGRESS:
-            if any(row.get("sync_error") for row in rows):
-                _PRODUCT_PROGRESS_SLOT["failed"] = int(_PRODUCT_PROGRESS_SLOT.get("failed") or 0) + 1
-            _PRODUCT_PROGRESS_SLOT["done"] = min(
-                int(_PRODUCT_PROGRESS_SLOT["total"]),
-                int(_PRODUCT_PROGRESS_SLOT["done"]) + 1,
-            )
+    gate = threading.Lock()
+
+    def pull(shop_id: int) -> dict:
+        grouped = _pull_product_spans(shop_id, spans) if spans else {}
+        with gate:
+            for key, rows in grouped.items():
+                by_key.setdefault(key, {})[shop_id] = rows
+            seen.add(shop_id)
+            with _PRODUCT_PROGRESS:
+                _PRODUCT_PROGRESS_SLOT["done"] = min(int(_PRODUCT_PROGRESS_SLOT["total"]), len(seen))
+        return grouped
 
     try:
-        if shops:
-            with ThreadPoolExecutor(max_workers=_workers(len(shops))) as pool:
-                list(pool.map(pull, [shop.id for shop in shops]))
-        items: list[dict] = []
+        if shops and spans:
+            take_turns(shop_ids, pull)
+        for span in spans:
+            items: list[dict] = []
+            shop_rows = by_key.get(span["key"]) or {}
+            for shop in shops:
+                items.extend(shop_rows.get(shop.id) or [])
+            previous = list((_load_products(span["key"]) or {}).get("items") or [])
+            _remember_products(
+                span["key"],
+                span["preset"],
+                int(span["date_type"]),
+                span["start_day"],
+                span["end_day"],
+                merge_kept(previous, items),
+            )
+        failed = 0
         for shop in shops:
-            items.extend(by_shop.get(shop.id) or [])
-        failed = int(_PRODUCT_PROGRESS_SLOT.get("failed") or 0)
+            shop_failed = False
+            for span in spans:
+                rows = (by_key.get(span["key"]) or {}).get(shop.id) or []
+                if any(row.get("sync_error") for row in rows):
+                    shop_failed = True
+                    break
+            if shop_failed:
+                failed += 1
         message = f"{len(shops) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")
-        _remember_products(_span_key(preset, start_day, end_day), preset, date_type, start_day, end_day, items)
         with _PRODUCT_PROGRESS:
             _PRODUCT_PROGRESS_SLOT.update(done=len(shops), failed=failed, message=message or "完成")
     except Exception:
@@ -997,16 +1239,17 @@ def _refresh_products(preset: str, start: str, end: str) -> None:
             _PRODUCT_PROGRESS_SLOT.update(message="拉取过程出错了，请查看服务端日志")
 
 
-def start_product_refresh(preset: str, start: str = "", end: str = "") -> dict:
+def _enqueue_product_job(jobs: list[dict]) -> dict:
     global _PRODUCT_PENDING
-    resolve_span(preset, start, end)
+    for job in jobs:
+        resolve_span(str(job.get("preset") or ""), str(job.get("start") or ""), str(job.get("end") or ""))
 
     def run(current: dict) -> None:
         global _PRODUCT_PENDING
         try:
             while current:
                 try:
-                    _refresh_products(current["preset"], current["start"], current["end"])
+                    _refresh_product_job(list(current.get("spans") or []))
                 except Exception:
                     _LOG.exception("商品明细更新失败")
                     with _PRODUCT_PROGRESS:
@@ -1026,9 +1269,10 @@ def start_product_refresh(preset: str, start: str = "", end: str = "") -> dict:
                 _PRODUCT_PROGRESS_SLOT.update(running=False, message="拉取过程出错了，请查看服务端日志")
             _PRODUCT_JOB.release()
 
+    payload = {"spans": jobs}
     if not _PRODUCT_JOB.acquire(blocking=False):
         with _PRODUCT_PROGRESS:
-            _PRODUCT_PENDING = {"preset": preset, "start": start, "end": end}
+            _PRODUCT_PENDING = payload
             _PRODUCT_PROGRESS_SLOT["running"] = True
         if not _PRODUCT_JOB.acquire(blocking=False):
             return product_progress()
@@ -1042,13 +1286,17 @@ def start_product_refresh(preset: str, start: str = "", end: str = "") -> dict:
         return product_progress()
     with _PRODUCT_PROGRESS:
         _PRODUCT_PROGRESS_SLOT.update(running=True, done=0, total=0, failed=0, message="")
-    threading.Thread(
-        target=run,
-        args=({"preset": preset, "start": start, "end": end},),
-        name="center-products",
-        daemon=True,
-    ).start()
+    threading.Thread(target=run, args=(payload,), name="center-products", daemon=True).start()
     return product_progress()
+
+
+def start_product_refresh(preset: str, start: str = "", end: str = "") -> dict:
+    return _enqueue_product_job([{"preset": preset, "start": start, "end": end}])
+
+
+def start_product_defaults() -> dict:
+    """10 分钟任务刷新商品明细的实时、近 1 天、近 7 天、近 30 天。一家店只进一次罗盘。"""
+    return _enqueue_product_job([{"preset": preset, "start": "", "end": ""} for preset in _PRODUCT_PRESETS])
 
 
 def touch_daily() -> str:
@@ -1083,11 +1331,12 @@ def load_center_cache() -> None:
             _load_shops(_span_key(preset, start_day, end_day))
         except Exception:
             _LOG.exception("读取数据总览或店铺明细缓存失败 %s", preset)
-    try:
-        date_type, start_day, end_day = resolve_span("7")
-        _load_products(_span_key("7", start_day, end_day))
-    except Exception:
-        _LOG.exception("读取商品明细缓存失败")
+    for preset in _PRODUCT_PRESETS:
+        try:
+            _date_type, start_day, end_day = resolve_span(preset)
+            _load_products(_span_key(preset, start_day, end_day))
+        except Exception:
+            _LOG.exception("读取商品明细缓存失败 %s", preset)
     stored = fund_cache.read_obj("center_schedule")
     if isinstance(stored, dict):
         with _SCHEDULE_LOCK:
@@ -1104,13 +1353,13 @@ def _wait_idle(reader) -> None:
 
 
 def run_center_cycle() -> None:
-    """先更新店铺明细的四个固定时间，再更新商品明细，然后把下次时间写进 Redis。"""
+    """先更新店铺明细的四个固定时间，再更新商品明细的四个固定时间，然后把下次时间写进 Redis。"""
     _COMPASS_TURN.acquire()
     try:
         for preset in ("realtime", "1", "7", "30"):
             start_shop_refresh(preset)
             _wait_idle(shop_progress)
-        start_product_refresh("7")
+        start_product_defaults()
         _wait_idle(product_progress)
         finished = datetime.now()
         nxt = finished + timedelta(minutes=_INTERVAL_MINUTES)
@@ -1122,7 +1371,7 @@ def run_center_cycle() -> None:
         with _SCHEDULE_LOCK:
             _SCHEDULE.update(payload)
         fund_cache.write_obj("center_schedule", payload, _CACHE_TTL_SECONDS)
-        _LOG.info("店铺明细、商品明细下次更新 %s", payload["next_update"])
+        _LOG.info("店铺明细和商品明细四个时间下次更新 %s", payload["next_update"])
     finally:
         _COMPASS_TURN.release()
 

@@ -13,10 +13,31 @@
     var tab = "overview";
     var shopSort = { key: "pay_amount", dir: "desc" };
     var productSort = { key: "pay_amount", dir: "desc" };
+    var homeSort = { key: "", dir: "desc" };
     var scheduleTimer = null;
     var scheduleSeen = "";
     var scheduleState = null;
     var dailySeen = null;
+    var shellPreset = "realtime";
+    var shellStart = "";
+    var shellEnd = "";
+    var productPresetValue = "7";
+    var productStartValue = "";
+    var productEndValue = "";
+    var SHELL_OPTIONS = [
+        ["realtime", "实时"],
+        ["1", "近1天"],
+        ["7", "近7天"],
+        ["30", "近30天"],
+        ["custom", "自定义"]
+    ];
+    var PRODUCT_OPTIONS = [
+        ["realtime", "实时"],
+        ["1", "近1天"],
+        ["7", "近7天"],
+        ["30", "近30天"],
+        ["custom", "自定义"]
+    ];
 
     function el(id) {
         return document.getElementById(id);
@@ -40,13 +61,50 @@
         return day;
     }
 
-    function fillPresetDates() {
-        var mode = preset();
+    function parseIso(value) {
+        var parts = (value || "").split("-");
+        if (parts.length < 3) return shift(-1);
+        return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0, 0);
+    }
+
+    function paintRangeNote() {
+        var note = el("center-range-note");
+        if (!note) return;
+        if (tab === "products") {
+            note.textContent = "默认近7天。实时、近1天、近7天、近30天不用填日期。自定义选开始和结束，最多 90 天。";
+            return;
+        }
+        note.textContent = "默认实时。近 1 天、近 7 天、近 30 天截止到昨天。自定义只能选今天和前 90 天。";
+    }
+
+    function fillProductDates(mode, start, end, resetPick) {
         var custom = mode === "custom";
-        var start = el("center-start");
-        var end = el("center-end");
         start.disabled = !custom;
         end.disabled = !custom;
+        if (custom) {
+            if (resetPick) {
+                start.value = "";
+                end.value = "";
+            }
+            return;
+        }
+        start.value = "";
+        end.value = "";
+    }
+
+    function fillPresetDates(resetPick) {
+        var mode = preset();
+        var start = el("center-start");
+        var end = el("center-end");
+        if (tab === "products") {
+            fillProductDates(mode, start, end, !!resetPick);
+            paintRangeNote();
+            return;
+        }
+        var custom = mode === "custom";
+        start.disabled = !custom;
+        end.disabled = !custom;
+        paintRangeNote();
         if (custom) return;
         var from = shift(0);
         var to = shift(0);
@@ -88,17 +146,37 @@
         var name = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : "";
         var start = el("center-start").value;
         var end = el("center-end").value;
-        return name + (start && end ? "（" + start + " 至 " + end + "）" : "");
+        if (tab === "products" && productData && productData._query === productQuery() && productData.start) {
+            start = productData.start;
+            end = productData.end || productData.start;
+        }
+        if (!start) return name;
+        if (!end || start === end) return name + "（" + start + "）";
+        return name + "（" + start + " 至 " + end + "）";
     }
 
     function paintShellFilters() {
         var shopText = "当前筛选：" + accountLabel() + " · " + shopLabel() + " · " + timeLabel();
         el("center-shops-filter").textContent = shopText;
-        el("center-products-filter").textContent = "当前筛选：" + accountLabel() + " · " + shopLabel();
+        el("center-products-filter").textContent = "当前筛选：" + accountLabel() + " · " + shopLabel() + " · " + timeLabel();
     }
 
     function productQuery() {
-        return "/center/products?preset=7";
+        var mode = preset();
+        var path = "/center/products?preset=" + encodeURIComponent(mode);
+        var start = el("center-start").value;
+        var end = el("center-end").value;
+        if (mode === "custom") {
+            if (!start || !end) return "";
+            return path + "&start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end);
+        }
+        return path;
+    }
+
+    function productEmptyText(data) {
+        if (data && data.note) return data.note;
+        if (data && data.updated_at) return "这个时间没有商品";
+        return "这个时间还没有缓存，点查询拉取";
     }
 
     function paintSchedule(state) {
@@ -107,7 +185,9 @@
         if (!node) return;
         var current = scheduleState;
         var text = "";
-        if ((tab === "shops" || tab === "products") && current && current.next_update) {
+        if (tab === "products" && current && current.next_update) {
+            text = "每" + (current.interval_minutes || 10) + "分钟更新实时、近1天、近7天、近30天，下次更新 " + current.next_update;
+        } else if (tab === "shops" && current && current.next_update) {
             text = "每" + (current.interval_minutes || 10) + "分钟更新一次，下次更新 " + current.next_update;
         }
         node.textContent = text;
@@ -339,7 +419,8 @@
     function paintHome() {
         if (!homeData) return;
         var body = el("center-home-tbody");
-        var items = visibleItems(homeData.items || []);
+        var items = sortedCopy(visibleItems(homeData.items || []), homeSort);
+        paintSortMarks();
         if (!(homeData.items && homeData.items.length)) {
             body.innerHTML = '<tr><td colspan="9" class="empty">还没有店铺</td></tr>';
             return;
@@ -450,7 +531,7 @@
         document.querySelectorAll(".center-sort").forEach(function (btn) {
             var table = btn.getAttribute("data-sort-for");
             var key = btn.getAttribute("data-sort-key");
-            var state = table === "shops" ? shopSort : productSort;
+            var state = table === "shops" ? shopSort : table === "home" ? homeSort : productSort;
             var mark = state.key === key ? (state.dir === "asc" ? " ↑" : " ↓") : "";
             btn.textContent = btn.getAttribute("data-sort-label") + mark;
         });
@@ -601,7 +682,7 @@
         paintSortMarks();
         paintHeadSummary(items);
         if (!(productData.items && productData.items.length)) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">还没有商品</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml(productEmptyText(productData)) + "</td></tr>";
             return;
         }
         if (!scoped.length) {
@@ -679,22 +760,35 @@
     }
 
     function queryProducts() {
-        Dash.request(productQuery()).then(function (data) {
+        var query = productQuery();
+        Dash.request(query).then(function (data) {
+            data._query = query;
             productData = data;
             paintSchedule(data);
             paintProducts();
+            paintShellFilters();
         }).catch(function (err) {
             Dash.showToast(err.message || "加载失败", "error");
         });
     }
 
     function refreshProducts() {
+        var mode = preset();
+        var body = { preset: mode, start: "", end: "" };
+        if (mode === "custom") {
+            body.start = el("center-start").value;
+            body.end = el("center-end").value;
+            if (!body.start || !body.end) {
+                Dash.showToast("请选择开始和结束日期", "error");
+                return;
+            }
+        }
         paintShellFilters();
         el("center-products-tbody").innerHTML = "";
         Dash.request("/center/products/refresh", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ preset: "7", start: "", end: "" }),
+            body: JSON.stringify(body),
         }).then(function (state) {
             paintProductProgress(state);
             if (productTimer) return;
@@ -705,21 +799,56 @@
     }
 
     function ensureProducts() {
-        if (productData && productData.preset === "7" && (productData.items || []).length) {
+        var query = productQuery();
+        if (!query) {
+            el("center-products-tbody").innerHTML = '<tr><td colspan="7" class="empty">请选择开始和结束日期</td></tr>';
+            return;
+        }
+        if (productData && productData._query === query) {
             paintProducts();
             return;
         }
-        Dash.request(productQuery()).then(function (data) {
+        Dash.request(query).then(function (data) {
+            data._query = query;
             productData = data;
             paintSchedule(data);
-            if ((data.items || []).length) {
-                paintProducts();
-                return;
-            }
-            el("center-products-tbody").innerHTML = '<tr><td colspan="7" class="empty">正在准备，启动后会先更新一次</td></tr>';
-        }).catch(function () {
-            el("center-products-tbody").innerHTML = '<tr><td colspan="7" class="empty">正在准备，启动后会先更新一次</td></tr>';
+            paintProducts();
+            paintShellFilters();
+        }).catch(function (err) {
+            el("center-products-tbody").innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml((err && err.message) || "加载失败") + "</td></tr>";
         });
+    }
+
+    function rememberToolbar() {
+        if (tab === "products") {
+            productPresetValue = preset();
+            productStartValue = el("center-start").value;
+            productEndValue = el("center-end").value;
+            return;
+        }
+        shellPreset = preset();
+        shellStart = el("center-start").value;
+        shellEnd = el("center-end").value;
+    }
+
+    function setPresetOptions(kind) {
+        var select = el("center-preset");
+        var options = kind === "products" ? PRODUCT_OPTIONS : SHELL_OPTIONS;
+        var want = kind === "products" ? productPresetValue : shellPreset;
+        select.innerHTML = options.map(function (pair) {
+            return '<option value="' + pair[0] + '">' + pair[1] + "</option>";
+        }).join("");
+        var known = options.some(function (pair) { return pair[0] === want; });
+        select.value = known ? want : (kind === "products" ? "7" : "realtime");
+    }
+
+    function onProductDateChange() {
+        var mode = preset();
+        paintShellFilters();
+        if (mode !== "custom") return;
+        if (!el("center-start").value || !el("center-end").value) return;
+        productData = null;
+        ensureProducts();
     }
 
     function ensureShops() {
@@ -743,6 +872,7 @@
     }
 
     function showTab(name) {
+        rememberToolbar();
         tab = name || "overview";
         document.querySelectorAll("[data-center-tab]").forEach(function (btn) {
             btn.classList.toggle("active", btn.getAttribute("data-center-tab") === tab);
@@ -750,7 +880,16 @@
         document.querySelectorAll("[data-center-pane]").forEach(function (pane) {
             pane.classList.toggle("hidden", pane.getAttribute("data-center-pane") !== tab);
         });
-        el("view-center").classList.toggle("center-no-time", tab === "products");
+        if (tab === "products") {
+            setPresetOptions("products");
+            if (productStartValue) el("center-start").value = productStartValue;
+            if (productEndValue) el("center-end").value = productEndValue;
+        } else {
+            setPresetOptions("shell");
+            if (shellStart) el("center-start").value = shellStart;
+            if (shellEnd) el("center-end").value = shellEnd;
+        }
+        fillPresetDates(false);
         el("view-center").classList.toggle("center-has-summary", tab === "shops" || tab === "products");
         paintSchedule();
         paintShellFilters();
@@ -794,14 +933,23 @@
 
     function bind() {
         el("center-preset").addEventListener("change", function () {
-            fillPresetDates();
+            fillPresetDates(true);
             paintShellFilters();
+            if (tab === "products") {
+                productData = null;
+                ensureProducts();
+                return;
+            }
             latest = null;
             shopData = null;
             if (tab === "overview") ensureOverview();
             if (tab === "shops") ensureShops();
         });
         el("center-start").addEventListener("change", function () {
+            if (tab === "products") {
+                onProductDateChange();
+                return;
+            }
             paintShellFilters();
             if (preset() !== "custom") return;
             latest = null;
@@ -810,6 +958,10 @@
             if (tab === "shops") refreshShops();
         });
         el("center-end").addEventListener("change", function () {
+            if (tab === "products") {
+                onProductDateChange();
+                return;
+            }
             paintShellFilters();
             if (preset() !== "custom") return;
             latest = null;
@@ -861,13 +1013,14 @@
             btn.addEventListener("click", function () {
                 var table = btn.getAttribute("data-sort-for");
                 var key = btn.getAttribute("data-sort-key");
-                var state = table === "shops" ? shopSort : productSort;
+                var state = table === "shops" ? shopSort : table === "home" ? homeSort : productSort;
                 if (state.key === key) state.dir = state.dir === "desc" ? "asc" : "desc";
                 else {
                     state.key = key;
                     state.dir = "desc";
                 }
                 if (table === "shops") paintShops();
+                else if (table === "home") paintHome();
                 else paintProducts();
             });
         });

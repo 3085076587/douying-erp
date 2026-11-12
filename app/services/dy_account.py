@@ -1,7 +1,6 @@
 """账户中心调用的抖店接口。金额单位是分。"""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from app.services.dy_client import ShopApiError, ShopAuthError, request_shop
@@ -25,19 +24,14 @@ def fetch_account_bundle(cookies: dict[str, str]) -> dict[str, Any]:
         ("experience_margin", "/governance/shop/tpledgecash/payable/info_v2", None),
     )
 
-    def pull(job: tuple[str, str, dict | None]) -> tuple[str, dict, dict[str, str]]:
-        key, path, params = job
+    for key, path, params in jobs:
         local = dict(cookies)
         try:
             data = request_shop(local, "GET", path, params=params)
         except (ShopAuthError, ShopApiError):
             data = {}
-        return key, data if isinstance(data, dict) else {}, local
-
-    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
-        for key, data, local in pool.map(pull, jobs):
-            bundle[key] = data
-            cookies.update({name: value for name, value in local.items() if name and value})
+        bundle[key] = data if isinstance(data, dict) else {}
+        cookies.update({name: value for name, value in local.items() if name and value})
     return bundle
 
 

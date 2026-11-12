@@ -93,9 +93,11 @@
     margin-bottom: 8px;
 }
 .center-product-search .form-hint { margin: 0; }
-.center-product-search input {
+.center-product-search select,
+.center-product-search input[type="date"],
+.center-product-search input[type="month"],
+#center-product-q {
     height: 32px;
-    width: 220px;
     padding: 0 10px;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -103,7 +105,13 @@
     color: var(--text);
     font-size: 13px;
 }
-.center-product-search input:focus {
+#center-product-q { width: 220px; }
+.center-product-search input[type="date"],
+.center-product-search input[type="month"] { width: 148px; }
+.center-product-search select:focus,
+.center-product-search input[type="date"]:focus,
+.center-product-search input[type="month"]:focus,
+#center-product-q:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(196, 92, 38, 0.12);
@@ -150,11 +158,6 @@
 .center-home-id { color: #999; font-size: 12px; font-weight: 400; }
 .center-shop-value { font-weight: 600; }
 .center-product-name { max-width: 320px; white-space: normal; line-height: 1.4; }
-#view-center.center-no-time #center-preset,
-#view-center.center-no-time #center-start,
-#view-center.center-no-time #center-end,
-#view-center.center-no-time .center-date-sep,
-#view-center.center-no-time #center-range-note { display: none; }
 .center-shop-sub { margin-top: 2px; color: #888; font-size: 12px; }
 .center-sort {
     padding: 0;
