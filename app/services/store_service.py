@@ -141,6 +141,23 @@ def ensure_owner_account_column() -> None:
         )
 
 
+def ensure_shop_id_unique() -> None:
+    """一家抖店编号只保留一条。名称和编号都相同就更新这一条。"""
+    from sqlalchemy import inspect, text
+
+    from app.db.session import engine
+
+    try:
+        names = {idx["name"] for idx in inspect(engine).get_indexes("dy_shop")}
+    except Exception:
+        return
+    with engine.begin() as conn:
+        if "uk_dy_shop_owner" in names:
+            conn.execute(text("ALTER TABLE dy_shop DROP INDEX uk_dy_shop_owner"))
+        if "uk_dy_shop_id" not in names:
+            conn.execute(text("ALTER TABLE dy_shop ADD UNIQUE INDEX uk_dy_shop_id (shop_id)"))
+
+
 def ensure_shop_cookie_column() -> None:
     """老库没有 shop_cookie 时补上。这个字段表示这家店已经有自己的登录凭证。"""
     from sqlalchemy import inspect, text

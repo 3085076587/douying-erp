@@ -66,10 +66,10 @@ def _cookie_store(body: AccountImportIn) -> dict[str, dict[str, str]]:
     return store
 
 
-def _by_id(db: Session, shop_id: str) -> Shop | None:
+def _rows_by_id(db: Session, shop_id: str) -> list[Shop]:
     if not shop_id:
-        return None
-    return db.scalar(select(Shop).where(Shop.shop_id == shop_id))
+        return []
+    return list(db.scalars(select(Shop).where(Shop.shop_id == shop_id)))
 
 
 def _same_shop(shop: Shop, name: str) -> bool:
@@ -79,33 +79,17 @@ def _same_shop(shop: Shop, name: str) -> bool:
     return existing == name
 
 
-def _same_owner(shop: Shop, owner: str) -> bool:
-    """两边都有归属时必须相同。一边还空着，不拿归属把店拆开。"""
-    existing = (shop.owner_account or "").strip()
-    incoming = (owner or "").strip()
-    if not existing or not incoming:
-        return True
-    return existing == incoming
-
-
-def _find_shop(db: Session, listed_id: str, cookie_id: str, name: str, owner: str) -> tuple[Shop | None, str, str]:
-    """同名店按归属账号区分。归属不同就不是同一家，不能拿这次登录去覆盖。"""
+def _find_shop(db: Session, listed_id: str, cookie_id: str, name: str) -> tuple[Shop | None, str, str]:
+    """名称和店铺 ID 都相同就是同一家，更新凭证和归属。ID 对上但店名是另一家时不覆盖。"""
     for shop_id in (listed_id, cookie_id):
-        found = _by_id(db, shop_id)
-        if found is not None and _same_shop(found, name) and _same_owner(found, owner):
-            return found, "update", found.shop_id or shop_id
-    if name:
-        matches = [
-            shop
-            for shop in db.scalars(select(Shop))
-            if _compact(shop.name) == name and _same_owner(shop, owner)
-        ]
-        if len(matches) == 1:
-            return matches[0], "update", matches[0].shop_id or ""
-        if len(matches) > 1:
+        rows = _rows_by_id(db, shop_id)
+        matched = [shop for shop in rows if _same_shop(shop, name)]
+        if len(matched) == 1:
+            return matched[0], "update", matched[0].shop_id or shop_id
+        if rows:
             return None, "skip", ""
     for shop_id in (listed_id, cookie_id):
-        if shop_id and _by_id(db, shop_id) is None:
+        if shop_id:
             return None, "create", shop_id
     return None, "skip", ""
 
@@ -153,7 +137,7 @@ def save_import(db: Session, body: AccountImportIn) -> tuple[AccountImport, str,
     listed_id = _listed_shop_id(body)
     cookie_id = _cookie_shop_id(body)
     store = _cookie_store(body)
-    shop, action, shop_id = _find_shop(db, listed_id, cookie_id, name, body.account or "")
+    shop, action, shop_id = _find_shop(db, listed_id, cookie_id, name)
     if action == "create":
         shop = Shop(shop_id=shop_id, name=name or shop_id)
         db.add(shop)
@@ -161,7 +145,7 @@ def save_import(db: Session, body: AccountImportIn) -> tuple[AccountImport, str,
         _apply_shop(shop, body, store, name)
         if not (shop.shop_id or "").strip():
             for candidate in (listed_id, cookie_id):
-                if candidate and _by_id(db, candidate) is None:
+                if candidate and not _rows_by_id(db, candidate):
                     shop.shop_id = candidate
                     shop_id = candidate
                     break

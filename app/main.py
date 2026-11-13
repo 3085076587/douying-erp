@@ -35,6 +35,7 @@ from app.services.store_service import (
     ensure_credential_at_column,
     ensure_owner_account_column,
     ensure_shop_cookie_column,
+    ensure_shop_id_unique,
     renew_cookies,
 )
 import app.models  # noqa: F401
@@ -311,6 +312,7 @@ async def lifespan(_: FastAPI):
         ensure_shop_cookie_column()
         ensure_owner_account_column()
         ensure_credential_at_column()
+        ensure_shop_id_unique()
         db = SessionLocal()
         try:
             ensure_admin(db)
