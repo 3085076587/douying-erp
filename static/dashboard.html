@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=18">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=20">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=10">
 </head>
@@ -83,20 +83,23 @@
             <section class="view" id="view-fund-account">
                 <div class="panel">
                     <div class="toolbar">
-                        <div>
-                            <p class="form-hint">金额每小时按各店凭证更新一次。点拉取最新会重新向抖店要。</p>
-                        </div>
                         <div class="toolbar-actions">
                             <input id="fund-search" type="search" placeholder="搜索店铺">
                             <button class="btn" id="btn-export-accounts" type="button">导出</button>
                             <button class="btn btn-primary" id="btn-refresh-accounts" type="button">拉取最新</button>
                         </div>
                     </div>
-                    <div class="table-wrap">
-                        <table class="data-table" id="fund-table">
+                    <p class="center-summary-line" id="fund-summary"></p>
+                    <div class="center-tabs">
+                        <button class="center-tab active" type="button" data-fund-tab="goods">货款账户</button>
+                        <button class="center-tab" type="button" data-fund-tab="deposit">保证金</button>
+                    </div>
+                    <div class="table-wrap" id="fund-pane-goods" data-fund-pane="goods">
+                        <table class="data-table" id="fund-table-goods">
                             <thead>
                             <tr>
                                 <th>店铺</th><th>法人</th><th>登录</th>
+                                <th class="sortable" data-sort="total_asset">总资产</th>
                                 <th class="sortable" data-sort="balance">账户余额</th>
                                 <th class="sortable" data-sort="withdraw_balance">可提现</th>
                                 <th class="sortable" data-sort="reserve_balance">售后预留</th>
@@ -104,17 +107,30 @@
                                 <th class="sortable" data-sort="pending_settle">待结算</th>
                                 <th class="sortable" data-sort="settle_day">账期</th>
                                 <th class="sortable" data-sort="qianchuan_balance">千川可投</th>
+                                <th>银行卡</th><th></th>
+                            </tr>
+                            </thead>
+                            <tbody id="account-tbody-goods">
+                            <tr><td colspan="13" class="empty">打开后加载</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-wrap hidden" id="fund-pane-deposit" data-fund-pane="deposit">
+                        <table class="data-table" id="fund-table-deposit">
+                            <thead>
+                            <tr>
+                                <th>店铺</th><th>法人</th><th>登录</th>
                                 <th class="sortable" data-sort="deposit_base">基础保证金</th>
                                 <th class="sortable" data-sort="deposit_base_payable">基础应缴</th>
                                 <th class="sortable" data-sort="deposit_base_withdraw">基础可提现</th>
                                 <th class="sortable" data-sort="deposit_experience">体验保证金</th>
                                 <th class="sortable" data-sort="deposit_experience_payable">体验应缴</th>
                                 <th class="sortable" data-sort="deposit_experience_withdraw">体验可提现</th>
-                                <th>银行卡</th><th></th>
+                                <th></th>
                             </tr>
                             </thead>
-                            <tbody id="account-tbody">
-                            <tr><td colspan="18" class="empty">打开后加载</td></tr>
+                            <tbody id="account-tbody-deposit">
+                            <tr><td colspan="10" class="empty">打开后加载</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -421,7 +437,7 @@
 <script src="/static/js/common.js"></script>
 <script src="/static/js/dashboard/core.js?v=12"></script>
 <script src="/static/js/dashboard/stores.js?v=10"></script>
-<script src="/static/js/dashboard/accounts.js?v=10"></script>
+<script src="/static/js/dashboard/accounts.js?v=11"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/violations.js?v=16"></script>
 <script src="/static/js/dashboard/center.js?v=24"></script>

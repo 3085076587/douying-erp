@@ -160,7 +160,11 @@ th.sortable.sort-desc::after { content: " ↓"; }
     display: flex;
     flex-direction: column;
 }
-#view-fund-account .toolbar { flex-shrink: 0; }
+#view-fund-account .toolbar { justify-content: flex-end; }
+#view-fund-account .toolbar,
+#view-fund-account .center-tabs,
+#view-fund-account .center-summary-line { flex-shrink: 0; }
+#view-fund-account .center-summary-line { margin: 4px 0 0; }
 #view-fund-account .table-wrap {
     flex: 1;
     min-height: 0;
