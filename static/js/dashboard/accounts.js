@@ -55,7 +55,7 @@
 
     function loadAccounts() {
         Dash.request("/funds/accounts").then(paint).catch(function (err) {
-            body.innerHTML = '<tr><td colspan="16" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="18" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
         Dash.request("/funds/progress").then(function (state) {
             paintProgress(state);
@@ -107,11 +107,11 @@
         if (data) fundItems = data.items || [];
         var items = visibleFunds();
         if (!fundItems.length) {
-            body.innerHTML = '<tr><td colspan="16" class="empty">还没有账户数据。请先用插件添加店铺，再点拉取最新。</td></tr>';
+            body.innerHTML = '<tr><td colspan="18" class="empty">还没有账户数据。请先用插件添加店铺，再点拉取最新。</td></tr>';
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="16" class="empty">没有符合搜索的店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="18" class="empty">没有符合搜索的店铺</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (row) {
@@ -132,11 +132,75 @@
                 "</td><td>" + Dash.yuan(row.reserve_balance) + "</td><td>" + Dash.yuan(row.frozen_balance) +
                 "</td><td>" + Dash.yuan(row.pending_settle) + "</td><td>" + (row.settle_day ? Dash.escapeHtml(row.settle_day) + "天" : "—") +
                 "</td><td>" + Dash.yuan(row.qianchuan_balance) + "</td><td>" + Dash.yuan(row.deposit_base) +
-                "</td><td>" + Dash.yuan(row.deposit_base_withdraw) + "</td><td>" + Dash.yuan(row.deposit_experience) +
+                "</td><td>" + Dash.yuan(row.deposit_base_payable) + "</td><td>" + Dash.yuan(row.deposit_base_withdraw) +
+                "</td><td>" + Dash.yuan(row.deposit_experience) + "</td><td>" + Dash.yuan(row.deposit_experience_payable) +
                 "</td><td>" + Dash.yuan(row.deposit_experience_withdraw) + "</td><td>" + Dash.escapeHtml(bank) +
                 "</td><td>" + action + "</td></tr>";
         }).join("");
     }
+
+    function csvCell(value) {
+        var text = String(value == null ? "" : value);
+        if (/^[=+\-@]/.test(text)) text = "'" + text;
+        if (/[",\r\n]/.test(text)) return '"' + text.replace(/"/g, '""') + '"';
+        return text;
+    }
+
+    function yuanCsv(fen) {
+        if (fen == null || fen === "") return "";
+        var number = Number(fen);
+        if (isNaN(number)) return "";
+        return (number / 100).toFixed(2);
+    }
+
+    function exportAccounts() {
+        var items = visibleFunds();
+        if (!items.length) {
+            Dash.showToast(fundItems.length ? "没有符合搜索的店铺" : "还没有账户数据", "error");
+            return;
+        }
+        var header = ["店铺", "法人", "登录", "账户余额", "可提现", "售后预留", "已冻结", "待结算", "账期", "千川可投", "基础保证金", "基础应缴", "基础可提现", "体验保证金", "体验应缴", "体验可提现", "银行卡"];
+        var lines = [header.map(csvCell).join(",")];
+        items.forEach(function (row) {
+            var legal = row.legal_person || "";
+            if (row.charge_mobile) legal = legal ? legal + " " + row.charge_mobile : row.charge_mobile;
+            var bank = row.bank_name ? row.bank_name + (row.bank_tail ? " (" + row.bank_tail + ")" : "") : "";
+            var cells = [
+                row.name || "",
+                legal,
+                row.login_status === "online" ? "在线" : "掉线",
+                yuanCsv(row.balance),
+                yuanCsv(row.withdraw_balance),
+                yuanCsv(row.reserve_balance),
+                yuanCsv(row.frozen_balance),
+                yuanCsv(row.pending_settle),
+                row.settle_day || "",
+                yuanCsv(row.qianchuan_balance),
+                yuanCsv(row.deposit_base),
+                yuanCsv(row.deposit_base_payable),
+                yuanCsv(row.deposit_base_withdraw),
+                yuanCsv(row.deposit_experience),
+                yuanCsv(row.deposit_experience_payable),
+                yuanCsv(row.deposit_experience_withdraw),
+                bank
+            ];
+            lines.push(cells.map(csvCell).join(","));
+        });
+        var now = new Date();
+        var pad = function (n) { return n < 10 ? "0" + n : String(n); };
+        var stamp = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
+        var blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = "账户中心-" + stamp + ".csv";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("btn-export-accounts").addEventListener("click", exportAccounts);
 
     document.getElementById("fund-search").addEventListener("input", function () {
         paint(null);

@@ -55,7 +55,9 @@ _LIVE_KEYS = (
     "settle_day",
     "qianchuan_balance",
     "deposit_base",
+    "deposit_base_payable",
     "deposit_experience",
+    "deposit_experience_payable",
     "deposit_base_withdraw",
     "deposit_experience_withdraw",
     "synced_at",
@@ -124,9 +126,15 @@ def _shape_account(shop: Shop, bundle: dict) -> dict:
     deposit_base = _fen(base_account.get("account_amount"))
     if deposit_base is None:
         deposit_base = _fen(base.get("balance"))
+    deposit_base_payable = _fen(base_account.get("payable_amount"))
+    if deposit_base_payable is None:
+        deposit_base_payable = _fen(base.get("payable_amount"))
     deposit_experience = _fen(exp_page.get("balance"))
     if deposit_experience is None:
         deposit_experience = _fen(experience.get("balance"))
+    deposit_experience_payable = _fen(exp_page.get("payable"))
+    if deposit_experience_payable is None:
+        deposit_experience_payable = _fen(experience.get("payable_amount"))
     days = settle.get("DelayDayList") if isinstance(settle.get("DelayDayList"), list) and settle.get("DelayDayList") else None
     settle_day = str(days[0]) if days else ""
     if not settle_day and isinstance(profile.get("shop_settle_day"), dict):
@@ -156,7 +164,9 @@ def _shape_account(shop: Shop, bundle: dict) -> dict:
         "settle_day": settle_day,
         "qianchuan_balance": _fen(qianchuan.get("avail_balance")),
         "deposit_base": deposit_base,
+        "deposit_base_payable": deposit_base_payable,
         "deposit_experience": deposit_experience,
+        "deposit_experience_payable": deposit_experience_payable,
         "deposit_base_withdraw": _fen(base_account.get("can_refund_amount")),
         "deposit_experience_withdraw": _fen(exp_withdraw.get("withdrawable_amount")),
         "bank_name": bank["bank_name"],
@@ -225,7 +235,9 @@ def _saved_row(shop: Shop, account: ShopAccount | None) -> dict:
         "settle_day": "",
         "qianchuan_balance": None,
         "deposit_base": None,
+        "deposit_base_payable": None,
         "deposit_experience": None,
+        "deposit_experience_payable": None,
         "deposit_base_withdraw": None,
         "deposit_experience_withdraw": None,
         "bank_name": account.bank_name if account is not None else "",

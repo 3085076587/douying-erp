@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=17">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=18">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=10">
 </head>
@@ -88,6 +88,7 @@
                         </div>
                         <div class="toolbar-actions">
                             <input id="fund-search" type="search" placeholder="搜索店铺">
+                            <button class="btn" id="btn-export-accounts" type="button">导出</button>
                             <button class="btn btn-primary" id="btn-refresh-accounts" type="button">拉取最新</button>
                         </div>
                     </div>
@@ -104,14 +105,16 @@
                                 <th class="sortable" data-sort="settle_day">账期</th>
                                 <th class="sortable" data-sort="qianchuan_balance">千川可投</th>
                                 <th class="sortable" data-sort="deposit_base">基础保证金</th>
+                                <th class="sortable" data-sort="deposit_base_payable">基础应缴</th>
                                 <th class="sortable" data-sort="deposit_base_withdraw">基础可提现</th>
                                 <th class="sortable" data-sort="deposit_experience">体验保证金</th>
+                                <th class="sortable" data-sort="deposit_experience_payable">体验应缴</th>
                                 <th class="sortable" data-sort="deposit_experience_withdraw">体验可提现</th>
                                 <th>银行卡</th><th></th>
                             </tr>
                             </thead>
                             <tbody id="account-tbody">
-                            <tr><td colspan="16" class="empty">打开后加载</td></tr>
+                            <tr><td colspan="18" class="empty">打开后加载</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -418,7 +421,7 @@
 <script src="/static/js/common.js"></script>
 <script src="/static/js/dashboard/core.js?v=12"></script>
 <script src="/static/js/dashboard/stores.js?v=10"></script>
-<script src="/static/js/dashboard/accounts.js?v=7"></script>
+<script src="/static/js/dashboard/accounts.js?v=10"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/violations.js?v=16"></script>
 <script src="/static/js/dashboard/center.js?v=24"></script>

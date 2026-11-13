@@ -27,7 +27,9 @@ class AccountRow(BaseModel):
     settle_day: str = ""
     qianchuan_balance: int | None = None
     deposit_base: int | None = None
+    deposit_base_payable: int | None = None
     deposit_experience: int | None = None
+    deposit_experience_payable: int | None = None
     deposit_base_withdraw: int | None = None
     deposit_experience_withdraw: int | None = None
     bank_name: str = ""

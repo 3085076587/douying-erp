@@ -147,6 +147,25 @@ th.sortable.sort-desc::after { content: " ↓"; }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .table-wrap { overflow: auto; }
+/* 账户中心表格自己滚动，横向滑块贴在可视区域底部，不用把整页滚到底。 */
+#view-fund-account.view.active {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 96px);
+    min-height: 280px;
+}
+#view-fund-account .panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+#view-fund-account .toolbar { flex-shrink: 0; }
+#view-fund-account .table-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
 .data-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
 .data-table th, .data-table td {
     border-bottom: 1px solid var(--border);
