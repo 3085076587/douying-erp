@@ -79,14 +79,27 @@ def _same_shop(shop: Shop, name: str) -> bool:
     return existing == name
 
 
-def _find_shop(db: Session, listed_id: str, cookie_id: str, name: str) -> tuple[Shop | None, str, str]:
-    """ID 对上但店名是另一家时，不能拿这次登录去覆盖那一家。"""
+def _same_owner(shop: Shop, owner: str) -> bool:
+    """两边都有归属时必须相同。一边还空着，不拿归属把店拆开。"""
+    existing = (shop.owner_account or "").strip()
+    incoming = (owner or "").strip()
+    if not existing or not incoming:
+        return True
+    return existing == incoming
+
+
+def _find_shop(db: Session, listed_id: str, cookie_id: str, name: str, owner: str) -> tuple[Shop | None, str, str]:
+    """同名店按归属账号区分。归属不同就不是同一家，不能拿这次登录去覆盖。"""
     for shop_id in (listed_id, cookie_id):
         found = _by_id(db, shop_id)
-        if found is not None and _same_shop(found, name):
+        if found is not None and _same_shop(found, name) and _same_owner(found, owner):
             return found, "update", found.shop_id or shop_id
     if name:
-        matches = [shop for shop in db.scalars(select(Shop)) if _compact(shop.name) == name]
+        matches = [
+            shop
+            for shop in db.scalars(select(Shop))
+            if _compact(shop.name) == name and _same_owner(shop, owner)
+        ]
         if len(matches) == 1:
             return matches[0], "update", matches[0].shop_id or ""
         if len(matches) > 1:
@@ -97,9 +110,13 @@ def _find_shop(db: Session, listed_id: str, cookie_id: str, name: str) -> tuple[
     return None, "skip", ""
 
 
-def _find_import(db: Session, name: str, shop_id: str) -> AccountImport | None:
+def _find_import(db: Session, name: str, shop_id: str, account: str) -> AccountImport | None:
+    owner = (account or "").strip()
     rows = db.scalars(select(AccountImport).order_by(AccountImport.id.desc())).all()
     for row in rows:
+        row_owner = (row.account or "").strip()
+        if owner and row_owner and row_owner != owner:
+            continue
         try:
             shops = json.loads(row.shops_json or "[]")
         except json.JSONDecodeError:
@@ -136,7 +153,7 @@ def save_import(db: Session, body: AccountImportIn) -> tuple[AccountImport, str,
     listed_id = _listed_shop_id(body)
     cookie_id = _cookie_shop_id(body)
     store = _cookie_store(body)
-    shop, action, shop_id = _find_shop(db, listed_id, cookie_id, name)
+    shop, action, shop_id = _find_shop(db, listed_id, cookie_id, name, body.account or "")
     if action == "create":
         shop = Shop(shop_id=shop_id, name=name or shop_id)
         db.add(shop)
@@ -153,7 +170,7 @@ def save_import(db: Session, body: AccountImportIn) -> tuple[AccountImport, str,
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    row = _find_import(db, name, shop_id)
+    row = _find_import(db, name, shop_id, body.account or "")
     if row is None:
         row = AccountImport(account="", shops_json="[]", cookies_json="[]")
         db.add(row)
