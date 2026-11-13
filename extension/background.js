@@ -1194,8 +1194,6 @@ function finish(detail) {
   return detail;
 }
 
-async function captureAll(apiBase, token, account) {
-  const owner = String(account || "").trim().slice(0, 100);
 async function uploadCurrentShop(tabId, apiBase, token, owner) {
   say("这家没有切换店铺，只交当前店铺");
   await pressEscape(tabId);
@@ -1227,6 +1225,8 @@ async function uploadCurrentShop(tabId, apiBase, token, owner) {
   }
 }
 
+async function captureAll(apiBase, token, account) {
+  const owner = String(account || "").trim().slice(0, 100);
   if (!owner) return finish("归属账号不能为空");
   if (job.state === "running") return job.detail || "正在获取";
   runId += 1;
@@ -1263,7 +1263,7 @@ async function uploadCurrentShop(tabId, apiBase, token, owner) {
     if (pickerStatus === "login") return finish("请先在抖店登录");
     if (pickerStatus === "captcha") return finish("出现验证码，请自己通过后再点一次");
     if (pickerStatus === "no-header") return finish("右上角没有点到店铺");
-    if (pickerStatus === "no-switch") return finish("下拉里没有切换组织/店铺");
+    if (pickerStatus === "no-switch") return uploadCurrentShop(tabId, apiBase, token, owner);
     if (pickerStatus !== "picker") {
       const alt = await findPickerTab();
       if (!alt || !alt.id) return finish("没有点开切换组织/店铺");
