@@ -27,9 +27,11 @@
     var DEPOSIT_SUM = [
         ["基础保证金", "deposit_base"],
         ["基础应缴", "deposit_base_payable"],
+        ["基础保证金代缴", "deposit_base_due"],
         ["基础可提现", "deposit_base_withdraw"],
         ["体验保证金", "deposit_experience"],
         ["体验应缴", "deposit_experience_payable"],
+        ["体验保证金代缴", "deposit_experience_due"],
         ["体验可提现", "deposit_experience_withdraw"]
     ];
 
@@ -79,7 +81,7 @@
         Dash.request("/funds/accounts").then(paint).catch(function (err) {
             var html = '<tr><td colspan="13" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
             goodsBody.innerHTML = html;
-            depositBody.innerHTML = '<tr><td colspan="10" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            depositBody.innerHTML = '<tr><td colspan="12" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
         Dash.request("/funds/progress").then(function (state) {
             paintProgress(state);
@@ -103,10 +105,20 @@
         return (Number(row.balance) || 0) + (Number(row.pending_settle) || 0);
     }
 
+    function dueFen(payable, balance) {
+        if (payable == null || payable === "" || balance == null || balance === "") return null;
+        var left = Number(payable);
+        var right = Number(balance);
+        if (isNaN(left) || isNaN(right)) return null;
+        return left - right;
+    }
+
     function matchedFunds() {
         var keyword = document.getElementById("fund-search").value.trim().toLowerCase();
         return fundItems.filter(function (row) {
             row.total_asset = totalAsset(row);
+            row.deposit_base_due = dueFen(row.deposit_base_payable, row.deposit_base);
+            row.deposit_experience_due = dueFen(row.deposit_experience_payable, row.deposit_experience);
             if (!keyword) return true;
             return (row.name || "").toLowerCase().indexOf(keyword) >= 0 || String(row.shop_id || "").indexOf(keyword) >= 0;
         });
@@ -189,7 +201,7 @@
         paintSummary(fundTab === "goods" ? goods : deposit);
         if (!fundItems.length) {
             goodsBody.innerHTML = '<tr><td colspan="13" class="empty">还没有账户数据。请先用插件添加店铺，再点拉取最新。</td></tr>';
-            depositBody.innerHTML = '<tr><td colspan="10" class="empty">还没有账户数据。请先用插件添加店铺，再点拉取最新。</td></tr>';
+            depositBody.innerHTML = '<tr><td colspan="12" class="empty">还没有账户数据。请先用插件添加店铺，再点拉取最新。</td></tr>';
             return;
         }
         goodsBody.innerHTML = goods.length ? goods.map(function (row) {
@@ -205,11 +217,12 @@
         depositBody.innerHTML = deposit.length ? deposit.map(function (row) {
             return "<tr>" + shopCells(row) +
                 "<td>" + Dash.yuan(row.deposit_base) + "</td><td>" + Dash.yuan(row.deposit_base_payable) +
-                "</td><td>" + Dash.yuan(row.deposit_base_withdraw) + "</td><td>" + Dash.yuan(row.deposit_experience) +
-                "</td><td>" + Dash.yuan(row.deposit_experience_payable) +
+                "</td><td>" + Dash.yuan(row.deposit_base_due) + "</td><td>" + Dash.yuan(row.deposit_base_withdraw) +
+                "</td><td>" + Dash.yuan(row.deposit_experience) + "</td><td>" + Dash.yuan(row.deposit_experience_payable) +
+                "</td><td>" + Dash.yuan(row.deposit_experience_due) +
                 "</td><td>" + Dash.yuan(row.deposit_experience_withdraw) +
                 "</td><td>" + withdrawCell(row) + "</td></tr>";
-        }).join("") : '<tr><td colspan="10" class="empty">没有符合搜索的店铺</td></tr>';
+        }).join("") : '<tr><td colspan="12" class="empty">没有符合搜索的店铺</td></tr>';
         markSort();
     }
 
@@ -236,7 +249,7 @@
         var goodsTab = fundTab === "goods";
         var header = goodsTab
             ? ["店铺", "法人", "登录", "总资产", "账户余额", "可提现", "售后预留", "已冻结", "待结算", "账期", "千川可投", "银行卡"]
-            : ["店铺", "法人", "登录", "基础保证金", "基础应缴", "基础可提现", "体验保证金", "体验应缴", "体验可提现"];
+            : ["店铺", "法人", "登录", "基础保证金", "基础应缴", "基础保证金代缴", "基础可提现", "体验保证金", "体验应缴", "体验保证金代缴", "体验可提现"];
         var lines = [header.map(csvCell).join(",")];
         items.forEach(function (row) {
             var legal = row.legal_person || "";
@@ -251,9 +264,10 @@
                 ]
                 : [
                     row.name || "", legal, row.login_status === "online" ? "在线" : "掉线",
-                    yuanCsv(row.deposit_base), yuanCsv(row.deposit_base_payable), yuanCsv(row.deposit_base_withdraw),
+                    yuanCsv(row.deposit_base), yuanCsv(row.deposit_base_payable), yuanCsv(row.deposit_base_due),
+                    yuanCsv(row.deposit_base_withdraw),
                     yuanCsv(row.deposit_experience), yuanCsv(row.deposit_experience_payable),
-                    yuanCsv(row.deposit_experience_withdraw)
+                    yuanCsv(row.deposit_experience_due), yuanCsv(row.deposit_experience_withdraw)
                 ];
             lines.push(cells.map(csvCell).join(","));
         });

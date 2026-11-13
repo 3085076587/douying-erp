@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "抖店账号导入",
-  "version": "2.3.13",
+  "version": "2.3.15",
   "description": "在抖店官网登录后，把这个账号下每家店铺的登录态交给 ERP。",
   "permissions": ["cookies", "storage", "scripting", "debugger"],
   "host_permissions": [

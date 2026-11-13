@@ -110,11 +110,11 @@ async function pageRun(action, payload) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const norm = (s) => String(s || "").replace(/[\u200b\u00a0\s]/g, "").replace(/／/g, "/");
   const text = () => String((document.body && document.body.innerText) || "");
-  const skip = /^(店铺信息|切换组织\/店铺|退出|返回|管理|更多|查看|收起导航|请选择店铺|选择店铺|正常营业|已关店|营业中|主账号|子账号)$/;
-  const bareShop = /^(正常营业|已关店|营业中|停业整顿|个体店|企业店|旗舰店|专卖店|专营店|官方店|个人店|抖店工作台|登录中)$/;
+  const skip = /^(店铺信息|切换组织\/店铺|退出|返回|管理|更多|查看|收起导航|请选择店铺|选择店铺|正常营业|已关店|已清退|营业中|主账号|子账号)$/;
+  const bareShop = /^(正常营业|已关店|已清退|营业中|停业整顿|个体店|企业店|旗舰店|专卖店|专营店|官方店|个人店|抖店工作台|登录中)$/;
   const shopType = /(个体|企业|旗舰|专卖|专营|官方|个人)店/;
   const headerJunk = /通知中心|飞鸽|下载|更多|搜索|学习中心|服务市场|电商罗盘|精选联盟|巨量|获取凭证|快速发布|去发品|发图文|无货源/;
-  const badgeBits = /(个体店|企业店|旗舰店|专卖店|专营店|官方店|个人店|正常营业|已关店|营业中|停业整顿|子账号|主账号|抖店工作台|登录中)/g;
+  const badgeBits = /(个体店|企业店|旗舰店|专卖店|专营店|官方店|个人店|正常营业|已关店|已清退|营业中|停业整顿|子账号|主账号|抖店工作台|登录中)/g;
   const nameLine = (value) => {
     const clean = norm(value);
     if (!clean || clean.length < 2 || clean.length > 32) return false;
@@ -302,6 +302,7 @@ async function pageRun(action, payload) {
       shop_id: shopIdHere(),
       header: headerName(),
       menu: !!visibleExact("退出"),
+      can_switch: text().indexOf("切换组织") >= 0,
       account: emailHere(),
       local_storage: localAll(),
       ua: navigator.userAgent,
@@ -1195,6 +1196,37 @@ function finish(detail) {
 
 async function captureAll(apiBase, token, account) {
   const owner = String(account || "").trim().slice(0, 100);
+async function uploadCurrentShop(tabId, apiBase, token, owner) {
+  say("这家没有切换店铺，只交当前店铺");
+  await pressEscape(tabId);
+  await sleep(300);
+  const chip = await call(tabId, "point", { kind: "chip" });
+  if (chip && Number.isFinite(chip.x) && Number.isFinite(chip.y)) {
+    await trustedClick(tabId, chip.x, chip.y);
+    await sleep(700);
+  }
+  const snap = await call(tabId, "snapshot");
+  await pressEscape(tabId);
+  if (halt()) return finish("已停止");
+  if (!snap) return finish("没有读到当前店铺");
+  if (snap.login) return finish("请先在抖店登录");
+  if (snap.captcha) return finish("出现验证码，请自己通过后再点一次");
+  const name = String(snap.header || "").trim();
+  const shopId = String(snap.shop_id || "").trim();
+  if (!name && !shopId) return finish("没有读到当前店铺");
+  try {
+    const data = await upload(apiBase, token, snap, name, shopId, owner);
+    const action = (data && data.action) || "";
+    if (action === "skip") return finish((name || "当前店铺") + " 没对上店铺");
+    const word = action === "create" ? "已新建" : "已更新";
+    return finish("交上 1 家，" + (name || shopId) + " " + word);
+  } catch (err) {
+    const message = String((err && err.message) || "");
+    if (message === "401") return finish("401 后台登录已过期，请重新登录");
+    return finish((name || "当前店铺") + " 上传失败 " + message);
+  }
+}
+
   if (!owner) return finish("归属账号不能为空");
   if (job.state === "running") return job.detail || "正在获取";
   runId += 1;
