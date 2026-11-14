@@ -1,7 +1,7 @@
 """抖店、罗盘的请求节奏。
 
-同一家店的请求严格串行。不同店同时最多 4 家，全局每秒最多放行 6 次。
-店铺首页单独放宽到 12 家同时拉。罗盘和别的接口仍走 4 家。
+同一家店的请求严格串行。同时几家由 .env 的 FETCH_SHOP_WORKERS、FETCH_HOME_WORKERS 决定。
+罗盘、资金走店铺并发，店铺首页单独一条。全局每秒最多放行 6 次，首页按自己的并发放行。
 限流的店这一轮先记下，下一轮排到前面补，不在这一轮里干等。
 """
 from __future__ import annotations
@@ -12,10 +12,22 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, TypeVar
 
-_SHOP_WORKERS = 4
+from app.core.config import get_settings
+
+
+def _worker_count(value: int, default: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
+_SETTINGS = get_settings()
+_SHOP_WORKERS = _worker_count(_SETTINGS.fetch_shop_workers, 4)
 _QPS = 6
 _QPS_GAP = 1 / _QPS
-HOME_WORKERS = 12
+HOME_WORKERS = _worker_count(_SETTINGS.fetch_home_workers, 12)
 _HOME_QPS_GAP = 1 / HOME_WORKERS
 _SHOP: contextvars.ContextVar[int] = contextvars.ContextVar("pace_shop", default=0)
 _LANE: contextvars.ContextVar[str] = contextvars.ContextVar("pace_lane", default="")
@@ -94,7 +106,7 @@ def call_paced(action: Callable[[], _T]) -> _T:
 
 
 def take_turns(shop_ids: list[int], pull: Callable[[int], _T], workers: int | None = None, lane: str = "") -> None:
-    """每家店只占一个线程，店内自己排队。默认同时 4 家，店铺首页传 12。"""
+    """每家店只占一个线程，店内自己排队。同时几家看配置，店铺首页单独传自己的并发。"""
     if not shop_ids:
         return
     limit = workers if workers and workers > 0 else _SHOP_WORKERS

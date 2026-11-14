@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
     database_url: str = "mysql+pymysql://root@127.0.0.1:3306/douying_erp?charset=utf8mb4"
     redis_url: str = "redis://127.0.0.1:6379/2"
-    fetch_workers: int = 3
+    fetch_shop_workers: int = 4
+    fetch_home_workers: int = 12
     cookie_renew_hours: int = 2
     data_refresh_hours: int = 1
     violation_refresh_minutes: int = 10
