@@ -336,7 +336,7 @@
       }
       chrome.storage.local.set({ ownerAccount: owner });
       button.disabled = true;
-      apply("正在获取全部店铺", null, true);
+      apply("正在获取当前店铺", null, true);
       let port;
       try {
         port = chrome.runtime.connect({ name: "capture" });

@@ -440,6 +440,20 @@ def _shops(db: Session) -> list[Shop]:
     return list(db.scalars(select(Shop).order_by(Shop.id.asc())))
 
 
+def _row_pk(row: object) -> int:
+    if not isinstance(row, dict):
+        return 0
+    try:
+        return int(row.get("store_pk") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _only_current(items: list, alive: set[int]) -> list:
+    """缓存里还留着已删除的店时，页面和下一轮保存都不再带上。"""
+    return [row for row in items if isinstance(row, dict) and _row_pk(row) in alive]
+
+
 def _overview_kind(key: str) -> str:
     return "center_overview:" + key
 
@@ -478,7 +492,7 @@ def read_overview(db: Session, preset: str, start: str = "", end: str = "") -> d
         "start": start_day.isoformat(),
         "end": end_day.isoformat(),
         "updated_at": str(payload.get("updated_at") or ""),
-        "items": list(payload.get("items") or []),
+        "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
     }
 
 
@@ -507,7 +521,8 @@ def _refresh(preset: str, start: str, end: str) -> None:
     try:
         if shops:
             take_turns(shop_ids, pull)
-        rows = merge_kept(previous, rows)
+        alive = {shop.id for shop in shops}
+        rows = _only_current(merge_kept(previous, rows), alive)
         rows.sort(key=lambda item: int(item.get("store_pk") or 0))
         failed = sum(1 for row in rows if row.get("sync_error"))
         message = f"{len(shops) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")
@@ -808,7 +823,7 @@ def read_shops(db: Session, preset: str, start: str = "", end: str = "") -> dict
     date_type, start_day, end_day = resolve_span(preset, start, end)
     key = _span_key(preset, start_day, end_day)
     payload = _load_shops(key) or {}
-    items = list(payload.get("items") or [])
+    items = _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)})
     data = {
         "preset": preset,
         "date_type": date_type,
@@ -846,7 +861,8 @@ def _refresh_shops(preset: str, start: str, end: str) -> None:
         if shops:
             take_turns(shop_ids, pull)
         fresh = list(rows)
-        rows = merge_kept(previous, rows)
+        alive = {shop.id for shop in shops}
+        rows = _only_current(merge_kept(previous, rows), alive)
         _copy_quality(rows, fresh)
         rows.sort(key=lambda item: int(item.get("store_pk") or 0))
         failed = sum(1 for row in rows if row.get("sync_error"))
@@ -1198,7 +1214,7 @@ def read_products(db: Session, preset: str, start: str = "", end: str = "") -> d
         "end": end_text,
         "updated_at": str(payload.get("updated_at") or ""),
         "note": str(payload.get("note") or ""),
-        "items": list(payload.get("items") or []),
+        "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
     }
     data.update(center_schedule())
     return data
@@ -1278,13 +1294,14 @@ def _refresh_product_job(jobs: list[dict]) -> None:
             for shop in shops:
                 items.extend(shop_rows.get(shop.id) or [])
             previous = list((_load_products(span["key"]) or {}).get("items") or [])
+            alive = {shop.id for shop in shops}
             _remember_products(
                 span["key"],
                 span["preset"],
                 int(span["date_type"]),
                 span["start_day"],
                 span["end_day"],
-                merge_kept(previous, items),
+                _only_current(merge_kept(previous, items), alive),
             )
         failed = 0
         for shop in shops:

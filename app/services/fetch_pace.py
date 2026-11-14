@@ -37,7 +37,7 @@ def too_often(message: str) -> bool:
 
 def _blocked(row: dict) -> bool:
     text = str(row.get("sync_error") or "")
-    return too_often(text) or "暂时连不上" in text
+    return too_often(text) or "暂时连不上" in text or "服务器错误" in text
 
 
 def _resume_page(row: dict) -> int:

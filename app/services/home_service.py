@@ -144,7 +144,18 @@ def _refresh_home() -> dict:
             take_turns([shop.id for shop in shops], pull, workers=HOME_WORKERS, lane="home")
         pulled = [by_pk[shop.id] for shop in shops if shop.id in by_pk]
         previous = fund_cache.read(_CACHE) or []
-        rows = merge_kept(previous if isinstance(previous, list) else [], pulled)
+        alive = {shop.id for shop in shops}
+
+        def still_there(row: dict) -> bool:
+            try:
+                return int(row.get("store_pk") or 0) in alive
+            except (TypeError, ValueError):
+                return False
+
+        rows = [
+            row for row in merge_kept(previous if isinstance(previous, list) else [], pulled)
+            if isinstance(row, dict) and still_there(row)
+        ]
         failed = sum(1 for row in pulled if row.get("sync_error"))
         got_new = any(not row.get("sync_error") for row in pulled)
         if got_new:

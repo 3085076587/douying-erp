@@ -138,6 +138,23 @@ def _get(
             begin_date=begin_date,
             end_date=end_date,
         )
+    except ShopApiError as exc:
+        if "服务器错误" not in (exc.message or ""):
+            raise
+        _LOG.info("罗盘返回服务器错误，重新进店后再读 %s", shop_id)
+        try:
+            enter_listed_shop(cookies, shop_id, host="compass.jinritemai.com", login_source="compass")
+        except ShopApiError as enter_exc:
+            if "登录名单里没有这家店" in (enter_exc.message or ""):
+                raise exc from enter_exc
+            raise
+        return _read_card(
+            cookies,
+            path=path,
+            date_type=date_type,
+            begin_date=begin_date,
+            end_date=end_date,
+        )
     except ShopAuthError as first:
         if entered:
             raise

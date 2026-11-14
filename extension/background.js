@@ -12,7 +12,6 @@
 
 const API_BASE = "http://120.76.58.132:8082";
 const STORE_DOMAIN = "jinritemai.com";
-const MAX_SHOPS = 50;
 
 let job = { state: "idle", detail: "", progress: null };
 let runId = 0;
@@ -1195,16 +1194,8 @@ function finish(detail) {
 }
 
 async function uploadCurrentShop(tabId, apiBase, token, owner) {
-  say("这家没有切换店铺，只交当前店铺");
-  await pressEscape(tabId);
-  await sleep(300);
-  const chip = await call(tabId, "point", { kind: "chip" });
-  if (chip && Number.isFinite(chip.x) && Number.isFinite(chip.y)) {
-    await trustedClick(tabId, chip.x, chip.y);
-    await sleep(700);
-  }
+  say("正在读取当前页面");
   const snap = await call(tabId, "snapshot");
-  await pressEscape(tabId);
   if (halt()) return finish("已停止");
   if (!snap) return finish("没有读到当前店铺");
   if (snap.login) return finish("请先在抖店登录");
@@ -1256,159 +1247,7 @@ async function captureAll(apiBase, token, account) {
     if (first.login) return finish("请先在抖店登录");
     if (first.captcha) return finish("页面正在验证码，请通过后再点获取凭证");
 
-    await ensureDebug(tabId);
-    say("正在打开切换组织/店铺");
-    const pickerStatus = await openShopList(tabId);
-    if (pickerStatus === "stopped" || halt()) return finish("已停止");
-    if (pickerStatus === "login") return finish("请先在抖店登录");
-    if (pickerStatus === "captcha") return finish("出现验证码，请自己通过后再点一次");
-    if (pickerStatus === "no-header") return finish("右上角没有点到店铺");
-    if (pickerStatus === "no-switch") return uploadCurrentShop(tabId, apiBase, token, owner);
-    if (pickerStatus !== "picker") {
-      const alt = await findPickerTab();
-      if (!alt || !alt.id) return finish("没有点开切换组织/店铺");
-      tabId = alt.id;
-      await chrome.tabs.update(tabId, { active: true });
-    }
-
-    say("正在读店铺列表");
-    const listed = await call(tabId, "list");
-    const shops = (listed && listed.shops) || [];
-    if (!shops.length) return finish("切换组织/店铺里没有读到店铺");
-
-    let ok = 0;
-    let fail = 0;
-    let stopped = "";
-    const failed = [];
-
-    for (let i = 0; i < shops.length && i < MAX_SHOPS; i += 1) {
-      if (halt()) {
-        stopped = "已停止";
-        break;
-      }
-      const shop = shops[i];
-      say("进入 " + shop.name + "（" + (i + 1) + "/" + shops.length + "）", {
-        current: i + 1,
-        total: shops.length,
-      });
-
-      let point = null;
-      for (let n = 0; n < 8 && !point; n += 1) {
-        point = await call(tabId, "point", { kind: "shop", name: shop.name, shop_id: shop.shop_id });
-        if (point) break;
-        const snap = await call(tabId, "snapshot");
-        if (halt()) {
-          stopped = "已停止";
-          break;
-        }
-        if (!snap || !snap.picker) {
-          const again = await openShopList(tabId);
-          if (again === "stopped" || halt()) {
-            stopped = "已停止";
-            break;
-          }
-          if (again !== "picker") break;
-        }
-        await sleep(350);
-      }
-      if (stopped) break;
-      let status = "notfound";
-      if (point) {
-        await trustedClick(tabId, point.x, point.y);
-        const entered = await waitShopReady(tabId, shop.name);
-        if (halt()) {
-          stopped = "已停止";
-          break;
-        }
-        const header = String((entered && entered.header) || "");
-        if (entered && entered.captcha) status = "captcha";
-        else if (entered && !entered.picker && header && (header.indexOf(shop.name) >= 0 || (header.length >= 4 && shop.name.indexOf(header) >= 0))) status = "entered";
-        else status = "timeout";
-      }
-      const into = { status: status };
-      if (status === "captcha") return finish("出现验证码，请自己通过后再点一次");
-      if (status === "notfound") {
-        fail += 1;
-        failed.push(shop.name + " 没找到");
-        say(shop.name + " 没找到，跳过");
-      } else if (status !== "entered") {
-        fail += 1;
-        failed.push(shop.name + " 没进去");
-        say(shop.name + " 没进去（" + status + "），跳过");
-      } else {
-        const snap = await waitShopReady(tabId, shop.name);
-        if (halt()) {
-          stopped = "已停止";
-          break;
-        }
-        if (!snap) {
-          fail += 1;
-          failed.push(shop.name + " 没读到");
-        } else if (snap.captcha) {
-          return finish("出现验证码，请自己通过后再点一次");
-        } else {
-          const shopId = shop.shop_id || "";
-          try {
-            const data = await upload(apiBase, token, snap, shop.name, shopId, owner);
-            const action = (data && data.action) || "";
-            if (action === "skip") {
-              fail += 1;
-              failed.push(shop.name + " 没对上");
-              say(shop.name + " 没对上店铺");
-            } else {
-              ok += 1;
-              const word = action === "create" ? "已新建" : "已更新";
-              say(shop.name + " " + word);
-            }
-          } catch (err) {
-            const message = String((err && err.message) || "");
-            if (message === "401") return finish("401 后台登录已过期，请重新登录");
-            fail += 1;
-            failed.push(shop.name + " 上传失败");
-            say(shop.name + " 上传失败 " + message);
-          }
-        }
-      }
-
-      if (i + 1 < shops.length) {
-        let back = "";
-        for (let n = 0; n < 3 && back !== "picker"; n += 1) {
-          if (halt()) {
-            back = "stopped";
-            break;
-          }
-          if (back === "login") return finish("请先在抖店登录");
-          if (n) {
-            try {
-              const tab = await chrome.tabs.get(tabId);
-              const url = (tab && tab.url) || "";
-              if (/\/login/.test(url) && url.indexOf("/ffa/") < 0) return finish("请先在抖店登录");
-              if (url.indexOf("/ffa/mshop/homepage/index") < 0) {
-                await chrome.tabs.update(tabId, { url: "https://fxg.jinritemai.com/ffa/mshop/homepage/index" });
-                await sleep(1500);
-              }
-            } catch (err) {
-              /* 标签还在就原地再点一次 */
-            }
-          }
-          back = await openShopList(tabId);
-        }
-        if (back === "stopped" || halt()) {
-          stopped = "已停止";
-          break;
-        }
-        if (back === "login") return finish("请先在抖店登录");
-        if (back !== "picker") {
-          stopped = "回不到选择店铺，先停下";
-          break;
-        }
-      }
-    }
-
-    const parts = ["交上 " + ok + " 家"];
-    if (fail) parts.push("失败 " + fail + " 家（" + failed.join("、") + "）");
-    if (stopped) parts.push(stopped);
-    return finish(parts.join("，"));
+    return uploadCurrentShop(tabId, apiBase, token, owner);
   } catch (err) {
     console.log("[dy] fail " + String((err && err.message) || err));
     return finish("获取失败");
