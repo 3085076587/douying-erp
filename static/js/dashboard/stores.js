@@ -46,11 +46,11 @@
             return (row.name || "").toLowerCase().indexOf(keyword) >= 0 || String(row.shop_id || "").indexOf(keyword) >= 0;
         });
         if (!storeItems.length) {
-            body.innerHTML = '<tr><td colspan="5" class="empty">还没有店铺。请使用插件添加。</td></tr>';
+            body.innerHTML = '<tr><td colspan="6" class="empty">还没有店铺。请使用插件添加。</td></tr>';
             return;
         }
         if (!rows.length) {
-            body.innerHTML = '<tr><td colspan="5" class="empty">没有符合筛选的店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="6" class="empty">没有符合筛选的店铺</td></tr>';
             return;
         }
         body.innerHTML = rows.map(function (row) {
@@ -59,7 +59,8 @@
             return "<tr><td>" + Dash.escapeHtml(row.name) + "</td><td>" + Dash.escapeHtml(row.shop_id) +
                 "</td><td>" + Dash.escapeHtml(row.owner_account || "") +
                 "</td><td>" + mark +
-                "</td><td>" + statusTag(row.login_status) + "</td></tr>";
+                "</td><td>" + statusTag(row.login_status) +
+                "</td><td><button class=\"btn-row store-delete\" type=\"button\" data-id=\"" + row.id + "\">删除</button></td></tr>";
         }).join("");
     }
 
@@ -73,7 +74,7 @@
             fillSelect("store-owner", owners, "全部归属账号");
             paintStores();
         }).catch(function (err) {
-            body.innerHTML = '<tr><td colspan="5" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="6" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
     }
 
@@ -82,6 +83,32 @@
     ["store-search", "store-owner", "store-login"].forEach(function (id) {
         document.getElementById(id).addEventListener("input", paintStores);
         document.getElementById(id).addEventListener("change", paintStores);
+    });
+
+    var deleting = false;
+    body.addEventListener("click", function (event) {
+        var button = event.target.closest(".store-delete");
+        if (!button || deleting) return;
+        var id = Number(button.getAttribute("data-id"));
+        var row = null;
+        storeItems.forEach(function (item) {
+            if (item.id === id) row = item;
+        });
+        if (!row) return;
+        var name = row.name || row.shop_id || "这家店";
+        if (!window.confirm("删除「" + name + "」？店铺、违规记录和账户记录会一起去掉。")) return;
+        deleting = true;
+        button.disabled = true;
+        Dash.request("/stores/" + id, { method: "DELETE" }).then(function () {
+            storeItems = storeItems.filter(function (item) { return item.id !== id; });
+            paintStores();
+            Dash.showToast("已删除「" + name + "」", "success");
+        }).catch(function (err) {
+            Dash.showToast(err.message || "删除失败", "error");
+            button.disabled = false;
+        }).then(function () {
+            deleting = false;
+        });
     });
 
     var loginTimer = null;

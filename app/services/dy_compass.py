@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
 from app.services.dy_client import ShopApiError, ShopAuthError, _cookies, enter_listed_shop
 from app.services.fetch_pace import call_paced
+
+_LOG = logging.getLogger("uvicorn.error")
+_SERVER_ERROR_TRIES = 3
 
 _HOST = "https://compass.jinritemai.com"
 _UA = (
@@ -98,7 +102,19 @@ def _read_card(
             raise ShopApiError("罗盘返回了无法识别的内容") from exc
         return _unwrap(payload)
 
-    return call_paced(once)
+    return _call_through_server_error(once)
+
+
+def _call_through_server_error(action: Callable[[], dict]) -> dict:
+    """罗盘回「服务器错误」时再请求。每次都走原来的间隔，不是连着打。"""
+    for attempt in range(1, _SERVER_ERROR_TRIES + 1):
+        try:
+            return call_paced(action)
+        except ShopApiError as exc:
+            if "服务器错误" not in (exc.message or "") or attempt == _SERVER_ERROR_TRIES:
+                raise
+            _LOG.info("罗盘返回服务器错误，准备第 %s 次再请求", attempt + 1)
+    raise ShopApiError("罗盘接口失败")
 
 
 def _get(

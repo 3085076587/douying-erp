@@ -678,6 +678,29 @@ def _shop_row(shop: Shop, metrics: dict[str, str] | None = None, error: str = ""
     return row
 
 
+def forget_shop(store_pk: int) -> None:
+    """进行中的数据总览缓存里拿掉这一家，避免删完还显示旧行。"""
+    if store_pk <= 0:
+        return
+    for bucket in (_OVERVIEW_CACHE, _SHOP_CACHE, _PRODUCT_CACHE):
+        for payload in bucket.values():
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                continue
+            kept = []
+            for row in items:
+                if not isinstance(row, dict):
+                    kept.append(row)
+                    continue
+                try:
+                    pk = int(row.get("store_pk") or 0)
+                except (TypeError, ValueError):
+                    pk = 0
+                if pk != store_pk:
+                    kept.append(row)
+            payload["items"] = kept
+
+
 def _copy_quality(chosen: list[dict], fresh: list[dict]) -> None:
     """经营概况被限流、沿用上一轮时，这一轮拿到的体验分和好评率仍然写上。"""
     by_pk: dict[int, dict] = {}

@@ -1,15 +1,20 @@
 """店铺列表：登录后入库、进店凭证、登录态续期。"""
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
+from app.models.account import ShopAccount
+from app.models.account_import import AccountImport
 from app.models.shop import Shop
+from app.models.violation import DyViolation
+from app.services import fund_cache
 from app.services.dy_client import (
     FXG_HOST,
     SSO_HOST,
@@ -98,6 +103,40 @@ def note_embed_login(saved: int) -> None:
     with _LOGIN_SYNC:
         _LOGIN_MARK["mark"] += 1
         _LOGIN_MARK["total"] = saved
+
+
+def delete_shop(db: Session, store_pk: int) -> bool:
+    """删掉这家店、违规记录、账户记录，以及只包含这一家的导入记录。"""
+    shop = db.get(Shop, store_pk)
+    if shop is None:
+        return False
+    shop_id = str(shop.shop_id or "")
+    store_id = shop.id
+    db.execute(
+        delete(DyViolation).where(or_(DyViolation.shop_id == shop_id, DyViolation.store_pk == store_id))
+    )
+    db.execute(delete(ShopAccount).where(ShopAccount.store_pk == store_id))
+    if shop_id:
+        imports = list(db.scalars(select(AccountImport).where(AccountImport.shops_json.contains(shop_id))))
+        for row in imports:
+            try:
+                listed = json.loads(row.shops_json or "[]")
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(listed, list)
+                and len(listed) == 1
+                and isinstance(listed[0], dict)
+                and str(listed[0].get("shop_id") or "") == shop_id
+            ):
+                db.delete(row)
+    db.delete(shop)
+    db.commit()
+    fund_cache.scrub_store(store_id)
+    from app.services.center_service import forget_shop
+
+    forget_shop(store_id)
+    return True
 
 
 def login_sync_state() -> dict[str, int]:

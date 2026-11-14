@@ -38,3 +38,9 @@ class LoginSync(BaseModel):
 
     mark: int = Field(ge=0)
     total: int = Field(ge=0)
+
+
+class ShopRemoved(BaseModel):
+    """删除一家店铺后的提示。"""
+
+    message: str

@@ -90,6 +90,80 @@ def write_obj(kind: str, payload: dict, ttl_seconds: int) -> None:
     _save(kind, json.dumps(payload, ensure_ascii=False, default=str), ttl_seconds)
 
 
+def kinds() -> list[str]:
+    found: set[str] = set()
+    client = _client()
+    if client is not None:
+        try:
+            for key in client.scan_iter("dy:fund:*"):
+                found.add(str(key)[len("dy:fund:"):])
+        except Exception:
+            pass
+    with _LOCK:
+        found.update(_MEMORY)
+    return list(found)
+
+
+def _ttl(kind: str) -> int:
+    client = _client()
+    if client is not None:
+        try:
+            left = int(client.ttl(f"dy:fund:{kind}"))
+        except Exception:
+            left = -1
+        if left > 0:
+            return left
+    with _LOCK:
+        slot = _MEMORY.get(kind)
+    if slot is None:
+        return 7 * 24 * 3600
+    return max(1, int(slot[0] - time.time()))
+
+
+def _parsed(kind: str):
+    raw = _raw(kind)
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def _row_pk(row: object) -> int:
+    if not isinstance(row, dict) or "store_pk" not in row:
+        return 0
+    try:
+        return int(row.get("store_pk") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def scrub_store(store_pk: int) -> None:
+    """从整表缓存里拿掉这一家。店铺明细、首页、发票和账户快照都在这里。"""
+    if store_pk <= 0:
+        return
+    for kind in kinds():
+        if kind == f"dy:violation:{store_pk}":
+            drop(kind)
+            continue
+        data = _parsed(kind)
+        if isinstance(data, dict) and kind == "live" and str(store_pk) in data:
+            data.pop(str(store_pk), None)
+            write_obj(kind, data, _ttl(kind))
+            continue
+        if isinstance(data, dict) and isinstance(data.get("items"), list):
+            kept = [row for row in data["items"] if _row_pk(row) != store_pk]
+            if len(kept) != len(data["items"]):
+                data["items"] = kept
+                write_obj(kind, data, _ttl(kind))
+            continue
+        if isinstance(data, list):
+            kept = [row for row in data if _row_pk(row) != store_pk]
+            if len(kept) != len(data):
+                write(kind, kept, _ttl(kind))
+
+
 def drop(kind: str) -> None:
     client = _client()
     if client is not None:

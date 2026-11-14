@@ -145,6 +145,16 @@ th.sortable.sort-desc::after { content: " ↓"; }
 
 .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-row {
+    border: none;
+    background: none;
+    color: var(--danger);
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+}
+.btn-row:hover { text-decoration: underline; }
+.btn-row:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .table-wrap { overflow: auto; }
 /* 账户中心表格自己滚动，横向滑块贴在可视区域底部，不用把整页滚到底。 */
