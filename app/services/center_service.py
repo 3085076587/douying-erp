@@ -21,6 +21,7 @@ from app.services.dy_compass import (
     fetch_product_list,
     fetch_promotion_window,
 )
+from app.services.dy_shop_quality import QUALITY_FIELDS, fetch_shop_quality
 from app.services.fetch_pace import limited_shop_ids, merge_kept, prefer_limited, take_turns
 from app.services.schedule_log import write_fail, write_success
 from app.services.store_service import keep_shop_jar
@@ -670,9 +671,34 @@ def _shop_row(shop: Shop, metrics: dict[str, str] | None = None, error: str = ""
         "refund_amount": "",
         "refund_amount_extra": "",
     }
+    for field in QUALITY_FIELDS:
+        row[field] = ""
     if metrics:
         row.update(metrics)
     return row
+
+
+def _copy_quality(chosen: list[dict], fresh: list[dict]) -> None:
+    """经营概况被限流、沿用上一轮时，这一轮拿到的体验分和好评率仍然写上。"""
+    by_pk: dict[int, dict] = {}
+    for row in fresh:
+        try:
+            pk = int(row.get("store_pk") or 0)
+        except (TypeError, ValueError):
+            pk = 0
+        if pk:
+            by_pk[pk] = row
+    for row in chosen:
+        try:
+            pk = int(row.get("store_pk") or 0)
+        except (TypeError, ValueError):
+            pk = 0
+        source = by_pk.get(pk)
+        if not source or source is row:
+            continue
+        for field in QUALITY_FIELDS:
+            if source.get(field):
+                row[field] = source[field]
 
 
 def _pull_shop(shop_id: int, date_type: int, start_day: date, end_day: date) -> dict:
@@ -685,6 +711,8 @@ def _pull_shop(shop_id: int, date_type: int, start_day: date, end_day: date) -> 
         cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
         if not cookies or shop.shop_cookie != 1:
             return _shop_row(shop, error="还没有这家店的登录凭证")
+        metrics = None
+        error = ""
         try:
             data = fetch_operating_cards(
                 cookies,
@@ -696,13 +724,26 @@ def _pull_shop(shop_id: int, date_type: int, start_day: date, end_day: date) -> 
             keep_shop_jar(shop, cookies)
             db.commit()
         except ShopAuthError as exc:
-            return _shop_row(shop, error=str(exc) or "登录已失效")
+            error = str(exc) or "登录已失效"
         except ShopApiError as exc:
-            return _shop_row(shop, error=exc.message or "罗盘接口失败")
-        metrics = shape_operating(data, date_type)
-        if not metrics:
-            return _shop_row(shop, error="罗盘没有返回经营概况")
-        return _shop_row(shop, metrics)
+            error = exc.message or "罗盘接口失败"
+        else:
+            metrics = shape_operating(data, date_type)
+            if not metrics:
+                error = "罗盘没有返回经营概况"
+        try:
+            quality = fetch_shop_quality(cookies)
+        except Exception:
+            _LOG.exception("拉取店铺 %s 体验分和好评率失败", shop_id)
+            quality = {}
+        try:
+            keep_shop_jar(shop, cookies)
+            db.commit()
+        except Exception:
+            db.rollback()
+        row = _shop_row(shop, metrics, error=error)
+        row.update(quality)
+        return row
     except Exception:
         _LOG.exception("拉取店铺 %s 经营概况失败", shop_id)
         if shop is not None:
@@ -781,7 +822,9 @@ def _refresh_shops(preset: str, start: str, end: str) -> None:
     try:
         if shops:
             take_turns(shop_ids, pull)
+        fresh = list(rows)
         rows = merge_kept(previous, rows)
+        _copy_quality(rows, fresh)
         rows.sort(key=lambda item: int(item.get("store_pk") or 0))
         failed = sum(1 for row in rows if row.get("sync_error"))
         message = f"{len(shops) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")

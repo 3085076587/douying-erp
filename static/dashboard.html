@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/dashboard.css?v=21">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=1">
-    <link rel="stylesheet" href="/static/css/pages/center.css?v=10">
+    <link rel="stylesheet" href="/static/css/pages/center.css?v=11">
 </head>
 <body>
 <div class="layout">
@@ -327,15 +327,24 @@
                                 <thead>
                                 <tr>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="name" data-sort-label="店铺名称">店铺名称</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="experience_score" data-sort-label="总分">总分</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="goods_score" data-sort-label="商品体验">商品体验</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="logistics_score" data-sort-label="物流体验">物流体验</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="service_score" data-sort-label="服务体验">服务体验</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="bonus_score" data-sort-label="加分项">加分项</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="deduct_score" data-sort-label="扣分项">扣分项</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="login_status" data-sort-label="登录状态">登录状态</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="pay_amount" data-sort-label="成交金额">成交金额 ↓</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="order_count" data-sort-label="成交订单数">成交订单数</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="refund_rate" data-sort-label="退款率（支付时间）">退款率（支付时间）</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="refund_amount" data-sort-label="成交退款金额（支付时间）">成交退款金额（支付时间）</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="good_rate_30d" data-sort-label="近30天好评率">近30天好评率</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="mid_rate_30d" data-sort-label="近30天中评率">近30天中评率</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="bad_rate_30d" data-sort-label="近30天差评率">近30天差评率</button></th>
                                 </tr>
                                 </thead>
                                 <tbody id="center-shops-tbody">
-                                <tr><td colspan="6" class="empty">打开后加载</td></tr>
+                                <tr><td colspan="15" class="empty">打开后加载</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -486,7 +495,7 @@
 <script src="/static/js/dashboard/accounts.js?v=12"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/violations.js?v=16"></script>
-<script src="/static/js/dashboard/center.js?v=24"></script>
+<script src="/static/js/dashboard/center.js?v=26"></script>
 <script src="/static/js/dashboard/members.js?v=1"></script>
 </body>
 </html>

@@ -71,6 +71,20 @@ class CenterShopRow(BaseModel):
     refund_rate_extra: str = ""
     refund_amount: str = ""
     refund_amount_extra: str = ""
+    experience_score: str = ""
+    goods_score: str = ""
+    goods_score_change: str = ""
+    logistics_score: str = ""
+    logistics_score_change: str = ""
+    service_score: str = ""
+    service_score_change: str = ""
+    bonus_score: str = ""
+    bonus_score_change: str = ""
+    deduct_score: str = ""
+    deduct_score_change: str = ""
+    good_rate_30d: str = ""
+    mid_rate_30d: str = ""
+    bad_rate_30d: str = ""
 
 
 class CenterShopList(BaseModel):

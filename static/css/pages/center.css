@@ -157,6 +157,9 @@
 .center-error { color: #e5484d; font-size: 13px; }
 .center-home-id { color: #999; font-size: 12px; font-weight: 400; }
 .center-shop-value { font-weight: 600; }
+.center-score-change { margin-top: 2px; color: #888; font-size: 12px; font-weight: 400; white-space: nowrap; }
+.center-score-change.up { color: #30a46c; }
+.center-score-change.down { color: #e5484d; }
 .center-product-name { max-width: 320px; white-space: normal; line-height: 1.4; }
 .center-shop-sub { margin-top: 2px; color: #888; font-size: 12px; }
 .center-sort {
