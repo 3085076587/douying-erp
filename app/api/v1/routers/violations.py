@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user
+from app.core.deps import require_section
 from app.db.session import get_db
 from app.schemas.violation import (
     ViolationList,
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/violations", tags=["违规与预警"])
 
 
 @router.get("/shops", response_model=ViolationShopList, summary="店铺下拉列表")
-def shops(db: Session = Depends(get_db), _user=Depends(get_current_user)) -> ViolationShopList:
+def shops(db: Session = Depends(get_db), _user=Depends(require_section("violation"))) -> ViolationShopList:
     items = [ViolationShopRow.model_validate(row) for row in violation_service.list_violation_shops(db)]
     return ViolationShopList(items=items)
 
@@ -36,7 +36,7 @@ def _parse_store_pks(store_pks: str) -> list[int]:
 @router.get("/options", response_model=ViolationOptions, summary="筛选框候选项")
 def options(
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("violation")),
     store_pk: int = Query(default=0, description="店铺编号，0 表示全部"),
     store_pks: str = Query(default="", description="多选店铺编号，逗号分隔，优先于 store_pk"),
     account: str = Query(default="", description="抖音账号，空表示全部"),
@@ -64,7 +64,7 @@ def options(
 @router.get("", response_model=ViolationList, summary="违规记录查询")
 def list_violations(
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("violation")),
     store_pk: int = Query(default=0, description="店铺编号，0 表示全部"),
     store_pks: str = Query(default="", description="多选店铺编号，逗号分隔，优先于 store_pk"),
     account: str = Query(default="", description="抖音账号，空表示全部"),
@@ -103,14 +103,14 @@ def _progress_payload() -> ViolationProgress:
 
 
 @router.get("/progress", response_model=ViolationProgress, summary="拉取进度")
-def progress(_user=Depends(get_current_user)) -> ViolationProgress:
+def progress(_user=Depends(require_section("violation"))) -> ViolationProgress:
     return _progress_payload()
 
 
 @router.post("/refresh", response_model=ViolationProgress, summary="立刻向抖店重新拉取")
 def refresh(
     payload: ViolationRefreshRequest,
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("violation")),
 ) -> ViolationProgress:
     """丢掉 10 分钟缓存，每家店单独向抖店重新拉。立刻返回，页面轮询进度。"""
     violation_service.start_refresh(payload.start_date, payload.end_date)

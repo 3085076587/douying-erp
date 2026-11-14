@@ -4,7 +4,11 @@
     var API_BASE = "/api/v1";
     var TOKEN_KEY = "erp_access_token";
     var NAME_KEY = "erp_display_name";
-    var TITLES = { stores: "店铺列表", "fund-account": "账户中心", invoices: "发票管理", violations: "违规与预警", center: "数据中心" };
+    var TITLES = { stores: "店铺列表", "fund-account": "账户中心", invoices: "发票管理", violations: "违规与预警", center: "数据中心", members: "成员管理" };
+    var SECTION_OF = { stores: "stores", violations: "violation", center: "center", "fund-account": "fund", invoices: "fund" };
+    var accessReady = false;
+    var accessSections = [];
+    var canManageMembers = false;
 
     function token() { return localStorage.getItem(TOKEN_KEY); }
     if (!token()) {
@@ -88,7 +92,46 @@
         return "¥" + (Number(fen) / 100).toFixed(2);
     }
 
+    function viewAllowed(name) {
+        if (name === "members") return canManageMembers;
+        if (!accessReady) return name !== "members";
+        var section = SECTION_OF[name];
+        if (!section) return true;
+        return accessSections.indexOf(section) >= 0;
+    }
+
+    function firstAllowed() {
+        var order = ["stores", "violations", "center", "fund-account", "invoices"];
+        for (var i = 0; i < order.length; i++) {
+            if (viewAllowed(order[i])) return order[i];
+        }
+        return "stores";
+    }
+
+    function applyAccess(user) {
+        if (!user || !Array.isArray(user.sections)) return;
+        accessReady = true;
+        accessSections = user.sections;
+        canManageMembers = !!user.can_manage_members;
+        document.querySelectorAll("[data-section]").forEach(function (el) {
+            el.classList.toggle("hidden", accessSections.indexOf(el.getAttribute("data-section")) < 0);
+        });
+        var shopOn = ["stores", "violation", "center"].some(function (key) {
+            return accessSections.indexOf(key) >= 0;
+        });
+        document.getElementById("nav-shop-title").classList.toggle("hidden", !shopOn);
+        document.getElementById("nav-fund-title").classList.toggle("hidden", accessSections.indexOf("fund") < 0);
+        document.getElementById("nav-members").classList.toggle("hidden", !canManageMembers);
+        var nameText = user.display_name || user.username || name;
+        document.getElementById("top-username").textContent = nameText;
+        document.getElementById("top-avatar").textContent = nameText.slice(0, 1).toUpperCase();
+        var active = document.querySelector(".nav-item.active");
+        var current = active ? active.dataset.view : "stores";
+        if (!viewAllowed(current)) showView(firstAllowed());
+    }
+
     function showView(name) {
+        if (!viewAllowed(name)) name = firstAllowed();
         document.querySelectorAll(".nav-item").forEach(function (item) {
             item.classList.toggle("active", item.dataset.view === name);
         });
@@ -101,6 +144,7 @@
         if (name === "invoices" && window.Dash.loadInvoices) window.Dash.loadInvoices();
         if (name === "violations" && window.Vio && window.Vio.load) window.Vio.load();
         if (name === "center" && window.Dash.loadCenter) window.Dash.loadCenter();
+        if (name === "members" && window.Dash.pages && window.Dash.pages.members) window.Dash.pages.members();
     }
 
     document.querySelectorAll(".nav-item").forEach(function (item) {
@@ -109,5 +153,6 @@
 
     document.getElementById("btn-logout").addEventListener("click", toLogin);
 
-    window.Dash = { request: request, showToast: showToast, escapeHtml: escapeHtml, yuan: yuan, showView: showView };
+    window.Dash = { request: request, showToast: showToast, escapeHtml: escapeHtml, yuan: yuan, showView: showView, pages: {} };
+    request("/auth/me").then(applyAccess).catch(function () {});
 })();

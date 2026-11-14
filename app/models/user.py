@@ -13,3 +13,14 @@ class User(Base, TimestampMixin):
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     display_name: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    section_keys: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    @property
+    def sections(self) -> list[str]:
+        from app.services.access import sections_of
+
+        return sections_of(self)
+
+    @property
+    def can_manage_members(self) -> bool:
+        return self.username == "admin"

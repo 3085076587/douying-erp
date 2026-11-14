@@ -17,6 +17,8 @@ class UserInfo(BaseModel):
     id: int
     username: str
     display_name: str = ""
+    sections: list[str] = []
+    can_manage_members: bool = False
 
 
 class LoginResponse(BaseModel):

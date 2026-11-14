@@ -179,6 +179,8 @@ th.sortable.sort-desc::after { content: " ↓"; }
 }
 .data-table th { color: var(--text-secondary); font-weight: 600; font-size: 13px; }
 .empty { text-align: center; color: var(--text-secondary); padding: 28px 8px; }
+#view-members td:nth-child(n+3):nth-child(-n+6) { text-align: center; }
+.field-error { display: block; min-height: 16px; margin-top: -6px; font-size: 12px; color: var(--danger); }
 
 .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
 .tag-ok { background: #dcfce7; color: var(--success); }

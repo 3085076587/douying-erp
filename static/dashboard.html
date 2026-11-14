@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=20">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=21">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=10">
 </head>
@@ -15,27 +15,31 @@
     <aside class="sidebar">
         <div class="logo" data-logo data-title="抖店 管理系统"></div>
         <nav class="nav">
-            <div class="nav-group-title">店铺</div>
-            <a class="nav-item active" data-view="stores" href="javascript:void(0)">
+            <div class="nav-group-title" id="nav-shop-title">店铺</div>
+            <a class="nav-item active" data-view="stores" data-section="stores" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-8h6v8"/></svg>
                 <span>店铺列表</span>
             </a>
-            <a class="nav-item nav-sub" data-view="violations" href="javascript:void(0)">
+            <a class="nav-item nav-sub" data-view="violations" data-section="violation" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></svg>
                 <span>违规与预警</span>
             </a>
-            <a class="nav-item nav-sub" data-view="center" href="javascript:void(0)">
+            <a class="nav-item nav-sub" data-view="center" data-section="center" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-3"/></svg>
                 <span>数据总览</span>
             </a>
-            <div class="nav-group-title">资金结算</div>
-            <a class="nav-item nav-sub" data-view="fund-account" href="javascript:void(0)">
+            <div class="nav-group-title hidden" id="nav-fund-title">资金结算</div>
+            <a class="nav-item nav-sub hidden" data-view="fund-account" data-section="fund" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>
                 <span>账户中心</span>
             </a>
-            <a class="nav-item nav-sub" data-view="invoices" href="javascript:void(0)">
+            <a class="nav-item nav-sub hidden" data-view="invoices" data-section="fund" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
                 <span>发票管理</span>
+            </a>
+            <a class="nav-item hidden" data-view="members" id="nav-members" href="javascript:void(0)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span>成员管理</span>
             </a>
         </nav>
         <div class="sidebar-footer">v1.0.0</div>
@@ -369,6 +373,26 @@
                     </div>
                 </div>
             </section>
+            <section class="view" id="view-members">
+                <div class="panel">
+                    <div class="toolbar">
+                        <strong>账号可见范围</strong>
+                        <button class="btn btn-primary" id="btn-add-member" type="button">添加成员</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                            <tr>
+                                <th>账号</th><th>姓名</th><th>店铺列表</th><th>违规与预警</th><th>数据总览</th><th>资金结算</th><th>操作</th>
+                            </tr>
+                            </thead>
+                            <tbody id="access-tbody">
+                            <tr><td colspan="7" class="empty">加载中</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 </div>
@@ -435,13 +459,34 @@
         <div class="enter-track"><div id="center-bar"></div></div>
     </div>
 </div>
+<div id="member-mask" class="mask hidden">
+    <form id="member-form" class="dialog">
+        <h2>添加成员</h2>
+        <label>成员账号
+            <input id="f-account" maxlength="50" autocomplete="off" placeholder="字母、数字或下划线">
+        </label>
+        <span class="field-error" id="e-account"></span>
+        <label>姓名
+            <input id="f-name" maxlength="50" autocomplete="off">
+        </label>
+        <span class="field-error" id="e-name"></span>
+        <label>初始密码
+            <input value="admin123" disabled>
+        </label>
+        <div class="dialog-actions">
+            <button class="btn" id="modal-cancel" type="button">取消</button>
+            <button class="btn btn-primary" id="modal-submit" type="submit">确认添加</button>
+        </div>
+    </form>
+</div>
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
-<script src="/static/js/dashboard/core.js?v=12"></script>
+<script src="/static/js/dashboard/core.js?v=13"></script>
 <script src="/static/js/dashboard/stores.js?v=10"></script>
 <script src="/static/js/dashboard/accounts.js?v=12"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/violations.js?v=16"></script>
 <script src="/static/js/dashboard/center.js?v=24"></script>
+<script src="/static/js/dashboard/members.js?v=1"></script>
 </body>
 </html>

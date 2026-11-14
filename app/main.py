@@ -14,7 +14,7 @@ from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
-from app.services.auth import ensure_admin
+from app.services.auth import ensure_admin, ensure_members, ensure_user_sections
 from app.services.dy_proxy import browser_origin, build_proxy_response
 from app.services.schedule_log import write_fail, write_start, write_success
 from app.services import violation_service
@@ -313,9 +313,11 @@ async def lifespan(_: FastAPI):
         ensure_owner_account_column()
         ensure_credential_at_column()
         ensure_shop_id_unique()
+        ensure_user_sections()
         db = SessionLocal()
         try:
             ensure_admin(db)
+            ensure_members(db)
         finally:
             db.close()
     except Exception:

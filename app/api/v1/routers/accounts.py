@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user
+from app.core.deps import require_section
 from app.db.session import get_db
 from app.schemas.account_import import AccountImportIn, AccountImportResult
 from app.services.account_import_service import save_import
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/accounts", tags=["账号导入"])
 def import_account(
     body: AccountImportIn,
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("stores")),
 ) -> AccountImportResult:
     """收下账号、店铺列表、cookie、本地存储和浏览器标识。不回传这些内容。"""
     row, action, shop_name = save_import(db, body)

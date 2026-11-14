@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user
+from app.core.deps import require_section
 from app.db.session import get_db
 from app.schemas.center import (
     CenterHomeList,
@@ -39,14 +39,14 @@ def _shop_error(exc: Exception):
 
 
 @router.get("/schedule", response_model=CenterSchedule, summary="店铺明细和商品明细的更新时间")
-def schedule(_user=Depends(get_current_user)) -> CenterSchedule:
+def schedule(_user=Depends(require_section("center"))) -> CenterSchedule:
     return CenterSchedule.model_validate(center_schedule())
 
 
 @router.get("/overview", response_model=CenterOverviewList, summary="各店收支概况")
 def overview(
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("center")),
     preset: str = Query(default="realtime", max_length=16),
     start: str = Query(default="", max_length=10),
     end: str = Query(default="", max_length=10),
@@ -59,32 +59,32 @@ def overview(
 
 
 @router.get("/overview/progress", response_model=CenterProgress, summary="收支概况拉取进度")
-def overview_progress(_user=Depends(get_current_user)) -> CenterProgress:
+def overview_progress(_user=Depends(require_section("center"))) -> CenterProgress:
     return CenterProgress.model_validate(progress())
 
 
 @router.get("/home", response_model=CenterHomeList, summary="店铺首页待办")
 def home(
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("center")),
 ) -> CenterHomeList:
     return CenterHomeList.model_validate(read_home(db))
 
 
 @router.get("/home/progress", response_model=CenterProgress, summary="店铺首页拉取进度")
-def home_pull_progress(_user=Depends(get_current_user)) -> CenterProgress:
+def home_pull_progress(_user=Depends(require_section("center"))) -> CenterProgress:
     return CenterProgress.model_validate(home_progress())
 
 
 @router.post("/home/refresh", response_model=CenterProgress, summary="重新拉取店铺首页待办")
-def home_refresh(_user=Depends(get_current_user)) -> CenterProgress:
+def home_refresh(_user=Depends(require_section("center"))) -> CenterProgress:
     return CenterProgress.model_validate(start_home_refresh())
 
 
 @router.get("/shops", response_model=CenterShopList, summary="各店经营概况")
 def shops(
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("center")),
     preset: str = Query(default="realtime", max_length=16),
     start: str = Query(default="", max_length=10),
     end: str = Query(default="", max_length=10),
@@ -97,14 +97,14 @@ def shops(
 
 
 @router.get("/shops/progress", response_model=CenterProgress, summary="经营概况拉取进度")
-def shops_progress(_user=Depends(get_current_user)) -> CenterProgress:
+def shops_progress(_user=Depends(require_section("center"))) -> CenterProgress:
     return CenterProgress.model_validate(shop_progress())
 
 
 @router.get("/products", response_model=CenterProductList, summary="各店商品明细")
 def products(
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("center")),
     preset: str = Query(default="realtime", max_length=16),
     start: str = Query(default="", max_length=10),
     end: str = Query(default="", max_length=10),
@@ -117,14 +117,14 @@ def products(
 
 
 @router.get("/products/progress", response_model=CenterProgress, summary="商品明细拉取进度")
-def products_progress(_user=Depends(get_current_user)) -> CenterProgress:
+def products_progress(_user=Depends(require_section("center"))) -> CenterProgress:
     return CenterProgress.model_validate(product_progress())
 
 
 @router.post("/products/refresh", response_model=CenterProgress, summary="重新拉取商品明细")
 def products_refresh(
     payload: CenterRefreshRequest,
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("center")),
 ) -> CenterProgress:
     try:
         state = start_product_refresh(payload.preset, payload.start, payload.end)
@@ -136,7 +136,7 @@ def products_refresh(
 @router.post("/shops/refresh", response_model=CenterProgress, summary="重新拉取经营概况")
 def shops_refresh(
     payload: CenterRefreshRequest,
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("center")),
 ) -> CenterProgress:
     try:
         state = start_shop_refresh(payload.preset, payload.start, payload.end)
@@ -148,7 +148,7 @@ def shops_refresh(
 @router.post("/overview/refresh", response_model=CenterProgress, summary="重新拉取收支概况")
 def overview_refresh(
     payload: CenterRefreshRequest,
-    _user=Depends(get_current_user),
+    _user=Depends(require_section("center")),
 ) -> CenterProgress:
     try:
         state = start_refresh(payload.preset, payload.start, payload.end)
