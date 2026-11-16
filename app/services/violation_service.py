@@ -1,8 +1,10 @@
-"""抖店违规与预警：拉取、缓存、入库和查询。
+"""抖店违规与预警：拉取、缓存和查询。
 
-每家店单独向抖店拉取。10 分钟内重复拉取直接用上次的结果，
-点「拉取最新数据」会丢掉缓存马上更新。记录写进 MySQL，页面查询读库。
-店铺直接用现有的 dy_shop，登录凭证也是现成的，不用重新登录。
+数据不落库：定时任务每 10 分钟拉一次近 30 天，按店铺写进 Redis；
+页面查询近 30 天内的任意范围（今天/近7天/近30天/自定义）都直接读 Redis，
+状态最多滞后一个刷新周期，不会出现"入库时的旧状态"。
+查询范围超出近 30 天时实时向抖店拉，结果只放在进程内存里（几分钟过期），
+不写 Redis 也不入库，保证看到的永远是拉取那一刻的最新状态。
 """
 from __future__ import annotations
 
@@ -10,6 +12,7 @@ import json
 import logging
 import re
 import threading
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -19,7 +22,6 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.shop import Shop
-from app.models.violation import DyViolation
 from app.services import fund_cache
 from app.services.fetch_pace import take_turns
 from app.services.dy_client import (
@@ -37,12 +39,56 @@ _LOG = logging.getLogger("uvicorn.error")
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
 STATE_FILE = LOG_DIR / "violation_scheduler_state.json"
 
-CACHE_TTL_SECONDS = 600  # 10 分钟内再查用刚才的结果
+CACHE_TTL_SECONDS = 1200  # Redis 里放 20 分钟，比刷新间隔长一倍，扛住一次失败的周期
+_LIVE_TTL_SECONDS = 900   # 超出 30 天的实时拉取结果在内存里留 15 分钟
+_LIVE_MAX = 8             # 内存里最多留几个时间范围的结果
 _JOB = threading.Lock()
 _PROGRESS = threading.Lock()
 _PROGRESS_SLOT: dict[str, object] = {
     "running": False, "done": 0, "total": 0, "failed": 0, "message": "", "trigger": ""
 }
+
+# ---------------------------------------------------------------------------
+# 超出 30 天的实时拉取结果：只放进程内存，不进 Redis 也不进数据库。
+# 键是 (开始日期, 结束日期)，值是（过期时间戳, 展示行）。
+# ---------------------------------------------------------------------------
+_LIVE_LOCK = threading.Lock()
+_LIVE: dict[tuple[str, str], tuple[float, list[dict]]] = {}
+# 记录每个范围最近一次自动触发拉取的时间，拉完没拿到结果时先不自动重拉，避免循环打接口
+_LIVE_ATTEMPTS: dict[tuple[str, str], float] = {}
+
+
+def _mark_attempt(key: tuple[str, str]) -> None:
+    with _LIVE_LOCK:
+        _LIVE_ATTEMPTS[key] = time.time()
+
+
+def _attempt_recent(key: tuple[str, str], seconds: int = 120) -> bool:
+    with _LIVE_LOCK:
+        at = _LIVE_ATTEMPTS.get(key)
+        return at is not None and time.time() - at < seconds
+
+
+def _live_store(key: tuple[str, str], rows: list[dict]) -> None:
+    with _LIVE_LOCK:
+        now = time.time()
+        _LIVE[key] = (now + _LIVE_TTL_SECONDS, rows)
+        for stale in [k for k, (expire, _rows) in _LIVE.items() if expire < now]:
+            _LIVE.pop(stale, None)
+        while len(_LIVE) > _LIVE_MAX:
+            oldest = min(_LIVE, key=lambda k: _LIVE[k][0])
+            _LIVE.pop(oldest, None)
+
+
+def _live_read(key: tuple[str, str]) -> list[dict] | None:
+    with _LIVE_LOCK:
+        slot = _LIVE.get(key)
+        if slot is None:
+            return None
+        if slot[0] < time.time():
+            _LIVE.pop(key, None)
+            return None
+        return slot[1]
 
 
 def schedule_minutes() -> int:
@@ -64,8 +110,6 @@ def next_update_text(last_update: str = "") -> str:
 
 def cache_fresh(seconds: int = 600) -> bool:
     """上一轮违规拉取是否还在指定秒数内。"""
-    from app.services import fund_cache
-
     return fund_cache.stamp_fresh(read_state().get("last_update"), seconds)
 
 
@@ -93,7 +137,7 @@ def write_state(**fields) -> None:
 # 处罚方式归类
 # 抖店给的是原始长文本（如「应冻结指定金额货款26.01元365天」「店铺每日限单20单,30个自然日」），
 # 里面的金额、天数、单量每家不同，没法直接当筛选项用。这里统一压成「类型」，
-# 页面下拉只显示类型，查询时按类型反查原始记录。
+# 页面下拉只显示类型，查询时按类型匹配；列表里显示的仍是带天数的原文。
 # ---------------------------------------------------------------------------
 _PENALTY_RULES: list[tuple[str, str]] = [
     # 从细到粗排：先匹配更具体的写法，避免被粗的规则吃掉
@@ -169,11 +213,6 @@ def penalty_categories(text: str) -> list[str]:
     return result
 
 
-def penalty_category(text: str) -> str:
-    """一条记录的处罚方式 → 展示用的类型文本。"""
-    return "、".join(penalty_categories(text))
-
-
 # ---------------------------------------------------------------------------
 # 违规类型：抖店给的原文常把处置动作也拼在后面，例如
 #   「劣质商品的同款/同类商品（商品封禁）」
@@ -208,17 +247,6 @@ def clean_violation_type(text: str) -> str:
         if "情节" not in tail and _TYPE_DISPOSAL.search(tail):
             out = out[: match.start()].rstrip()
     return out.rstrip("。.． ,，、")
-
-
-def type_value_map(db: Session) -> dict[str, list[str]]:
-    """清洗后的类型 → 库里对应的原始类型文本（一条原因可能对应多种原始写法）。"""
-    mapping: dict[str, list[str]] = {}
-    for raw in db.scalars(select(DyViolation.violation_type).distinct()):
-        text = str(raw or "").strip()
-        if not text:
-            continue
-        mapping.setdefault(clean_violation_type(text), []).append(text)
-    return mapping
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +321,34 @@ def cache_key(store_pk: int) -> str:
     return f"dy:violation:{store_pk}"
 
 
+# ---------------------------------------------------------------------------
+# 处罚到期日：处罚原文里的「N天/N个自然日」取最大天数，违规时间 + 天数。
+# 后端算好随行返回，前端只负责显示和标色；筛选（未到期/已到期）也在后端做。
+# ---------------------------------------------------------------------------
+_DUE_DAYS_RE = re.compile(r"(\d+)\s*(?:个\s*自\s*然\s*日|天)")
+
+
+def _penalty_max_days(text: str) -> int:
+    days = 0
+    for match in _DUE_DAYS_RE.finditer(text or ""):
+        days = max(days, int(match.group(1)))
+    return days
+
+
+def _due_date(penalty_text: str, violated_at: str) -> str:
+    """处罚到期日「YYYY-MM-DD」。没有天数信息或时间解析失败返回空。"""
+    if not violated_at:
+        return ""
+    days = _penalty_max_days(penalty_text)
+    if not days:
+        return ""
+    try:
+        day = datetime.strptime(violated_at[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return ""
+    return (day + timedelta(days=days)).isoformat()
+
+
 def progress() -> dict:
     with _PROGRESS:
         return dict(_PROGRESS_SLOT)
@@ -336,6 +392,35 @@ def _parse_time(value: str) -> datetime | None:
     return None
 
 
+def resolve_range(start_date: str, end_date: str) -> tuple[date, date]:
+    """日期字符串 →（开始日, 结束日）。空值或格式不对就用默认近 30 天。"""
+    try:
+        start = _parse_date(start_date) if start_date.strip() else default_range()[0]
+        end = _parse_date(end_date) if end_date.strip() else default_range()[1]
+    except ValueError:
+        start, end = default_range()
+    if start > end:
+        start, end = end, start
+    return start, end
+
+
+def _ts_range(start_date: str, end_date: str) -> tuple[int, int]:
+    """日期字符串 → 秒级时间戳区间（结束日当天整包含）。"""
+    start, end = resolve_range(start_date, end_date)
+    start_ts = int(datetime.combine(start, datetime.min.time()).timestamp())
+    end_ts = int(datetime.combine(end + timedelta(days=1), datetime.min.time()).timestamp())
+    return start_ts, end_ts
+
+
+def _within_30d(start: date) -> bool:
+    """查询范围的起点是否落在近 30 天内（近 30 天内读 Redis 缓存）。"""
+    return start >= date.today() - timedelta(days=30)
+
+
+def _range_key(start: date, end: date) -> tuple[str, str]:
+    return (start.isoformat(), end.isoformat())
+
+
 def list_violation_shops(db: Session) -> list[dict]:
     shops = list(db.scalars(select(Shop).order_by(Shop.id.asc())))
     return [
@@ -350,54 +435,105 @@ def list_violation_shops(db: Session) -> list[dict]:
     ]
 
 
-def _query_violations(
+def _target_shops(
     db: Session,
     *,
     store_pk: int = 0,
     store_pks: list[int] | None = None,
     account: str = "",
-    type_values: list[str] | None = None,
-    status: str = "",
-    start_date: str = "",
-    end_date: str = "",
-    violation_ids: list[str] | None = None,
-):
-    """按店铺、账号、类型、状态、时间查库（处罚方式要归类，放在内存里过滤）。
-
-    type_values 传的是库里存着的原始违规类型文本；页面上选了「清洗后的原因」时，
-    由 type_value_map() 先换算成它对应的那些原文。
-    """
-    query = select(DyViolation, Shop.name).join(Shop, DyViolation.store_pk == Shop.id, isouter=True)
+) -> list[Shop]:
+    """按店铺多选和抖音账号筛出目标店铺。"""
+    shops = list(db.scalars(select(Shop).order_by(Shop.id.asc())))
     if store_pks:
-        query = query.where(DyViolation.store_pk.in_(store_pks))
+        wanted = set(store_pks)
+        shops = [shop for shop in shops if shop.id in wanted]
     elif store_pk:
-        query = query.where(DyViolation.store_pk == store_pk)
+        shops = [shop for shop in shops if shop.id == store_pk]
     if account:
-        query = query.where(Shop.owner_account == account)
-    if type_values:
-        query = query.where(DyViolation.violation_type.in_(type_values))
-    if status:
-        query = query.where(DyViolation.status == status)
-    if violation_ids is not None:
-        query = query.where(DyViolation.violation_id.in_(violation_ids or ["-"]))
+        shops = [shop for shop in shops if (shop.owner_account or "") == account]
+    return shops
+
+
+def _display_rows(items: list[dict], shop: Shop | None) -> list[dict]:
+    """把 Redis/实时拉取里的一条条 shaped 记录转成页面展示行。"""
+    rows: list[dict] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        penalty_text = str(item.get("penalty") or "")
+        at = _parse_time(str(item.get("time") or ""))
+        violated_at = at.strftime("%Y-%m-%d %H:%M:%S") if at else ""
+        description = str(item.get("description") or "")
+        violation_type_raw = str(item.get("type") or "")
+        rows.append(
+            {
+                "store_pk": shop.id if shop else 0,
+                "shop_id": shop.shop_id if shop else "",
+                "shop_name": (shop.name or "") if shop else "",
+                "violation_id": str(item.get("violation_id") or ""),
+                "violated_at": violated_at,
+                "due_date": _due_date(penalty_text, violated_at),
+                "violation_type": clean_violation_type(violation_type_raw),
+                "violation_type_raw": violation_type_raw,
+                "penalty": penalty_text,
+                "penalty_category": "、".join(penalty_categories(penalty_text)),
+                "description": summarize_description(description),
+                "description_full": description,
+                "status": str(item.get("status") or ""),
+            }
+        )
+    return rows
+
+
+def _row_in_range(row: dict, start: date, end: date) -> bool:
+    text = str(row.get("violated_at") or "")[:10]
+    if not text:
+        return False
     try:
-        if violation_ids is None and start_date:
-            query = query.where(DyViolation.violated_at >= datetime.combine(_parse_date(start_date), datetime.min.time()))
-        if violation_ids is None and end_date:
-            end_dt = datetime.combine(_parse_date(end_date) + timedelta(days=1), datetime.min.time())
-            query = query.where(DyViolation.violated_at < end_dt)
+        day = _parse_date(text)
     except ValueError:
-        pass
-    # MySQL 没有 NULLS LAST，用 is_(None) 让空时间的排到最后
-    query = query.order_by(
-        DyViolation.violated_at.is_(None),
-        DyViolation.violated_at.desc(),
-        DyViolation.id.desc(),
-    )
-    return db.execute(query).all()
+        return False
+    return start <= day <= end
 
 
-def list_violations(
+def _apply_filters(
+    rows: list[dict],
+    *,
+    violation_type: str = "",
+    penalty: str = "",
+    status: str = "",
+    due: str = "",
+) -> list[dict]:
+    """due：处罚到期筛选，"active"=未到期，"passed"=已到期，其他=不限。
+
+    没有到期日的记录（处罚里没有天数，如警告）不算进任何一边。
+    """
+    today = date.today()
+    out: list[dict] = []
+    for row in rows:
+        if violation_type and row.get("violation_type") != violation_type:
+            continue
+        if penalty and penalty not in penalty_categories(row.get("penalty", "")):
+            continue
+        if status and row.get("status") != status:
+            continue
+        if due:
+            due_text = str(row.get("due_date") or "")
+            if not due_text:
+                continue
+            try:
+                passed = _parse_date(due_text) < today
+            except ValueError:
+                continue
+            if due == "passed" and not passed:
+                continue
+            if due == "active" and passed:
+                continue
+        out.append(row)
+    return out
+
+
+def query_violations(
     db: Session,
     *,
     store_pk: int = 0,
@@ -406,51 +542,57 @@ def list_violations(
     violation_type: str = "",
     penalty: str = "",
     status: str = "",
+    due: str = "",
     start_date: str = "",
     end_date: str = "",
     violation_ids: list[str] | None = None,
-) -> list[dict]:
-    """按筛选条件查库。时间按违规时间倒序。
+) -> dict:
+    """查询违规记录，返回 {"rows": [...], "pulling": bool}。
 
-    店铺支持多选（store_pks），处罚方式按归类后的类型匹配，
-    违规类型按「清洗后的原因」匹配（一个原因可能对应好几种原始写法）。
+    - 按编号查、或范围在近 30 天内：读 Redis 定时缓存（10 分钟一轮，状态不会旧）；
+    - 范围超出近 30 天：读内存里的实时拉取结果；还没有就触发后台拉取并返回
+      pulling=True，页面跟着进度走，拉完自动再查。结果不进 Redis 不入库。
     """
-    type_values: list[str] | None = None
-    if violation_type:
-        type_values = type_value_map(db).get(violation_type) or [violation_type]
+    shops = {shop.id: shop for shop in _target_shops(db, store_pk=store_pk, store_pks=store_pks, account=account)}
+    start, end = resolve_range(start_date, end_date)
+    ids_mode = violation_ids is not None
+    rows: list[dict] = []
+    pulling = False
 
-    rows = []
-    for item, shop_name in _query_violations(
-        db,
-        store_pk=store_pk,
-        store_pks=store_pks,
-        account=account,
-        type_values=type_values,
-        status=status,
-        start_date=start_date,
-        end_date=end_date,
-        violation_ids=violation_ids,
-    ):
-        categories = penalty_categories(item.penalty)
-        if penalty and penalty not in categories:
-            continue
-        rows.append(
-            {
-                "store_pk": item.store_pk,
-                "shop_id": item.shop_id,
-                "shop_name": shop_name or "",
-                "violation_id": item.violation_id,
-                "violated_at": item.violated_at.strftime("%Y-%m-%d %H:%M:%S") if item.violated_at else "",
-                "violation_type": clean_violation_type(item.violation_type),
-                "violation_type_raw": item.violation_type or "",
-                "penalty": item.penalty,
-                "penalty_category": "、".join(categories),
-                "description": summarize_description(item.description),
-                "description_full": item.description or "",
-                "status": item.status,
-            }
-        )
-    return rows
+    if ids_mode or _within_30d(start):
+        wanted = set(violation_ids or []) if ids_mode else None
+        for pk, shop in shops.items():
+            items = fund_cache.read(cache_key(pk))
+            if not items:
+                continue
+            shop_rows = _display_rows(items, shop)
+            if wanted is not None:
+                shop_rows = [row for row in shop_rows if row["violation_id"] in wanted]
+            else:
+                shop_rows = [row for row in shop_rows if _row_in_range(row, start, end)]
+            rows.extend(shop_rows)
+    else:
+        cached_rows = _live_read(_range_key(start, end))
+        if cached_rows is None:
+            with _PROGRESS:
+                job_running = bool(_PROGRESS_SLOT.get("running"))
+            if not job_running and _attempt_recent(_range_key(start, end)):
+                # 上一次拉取已经跑完但没拿到结果（多半是失败），先不自动重拉，
+                # 页面显示为空，用户可点「拉取最新数据」手动重试
+                pass
+            else:
+                _mark_attempt(_range_key(start, end))
+                # 这个时间范围还没拉过（或结果过期了），后台去拉，页面等进度
+                start_refresh(start_date, end_date)
+                pulling = True
+        else:
+            rows = list(cached_rows)
+
+    rows = _apply_filters(
+        rows, violation_type=violation_type, penalty=penalty, status=status, due=due
+    )
+    rows.sort(key=lambda row: row.get("violated_at") or "", reverse=True)
+    return {"rows": rows, "pulling": pulling}
 
 
 def options(
@@ -465,105 +607,73 @@ def options(
     start_date: str = "",
     end_date: str = "",
 ) -> dict:
-    """筛选框的候选项。
+    """筛选框的候选项，和查询同一数据源。
 
-    类型、处罚方式、状态给的是「全部可能出现的值」（不受时间/店铺影响），
-    所以下拉永远是完整清单，不会因为当前只查近30天就少几项；
-    同时每一项带 count，标记当前筛选条件下有多少条。
-    count 会排除自身条件，只受其他条件约束（标准分面），所以选完一定对得上。
+    违规类型、处罚方式给当前范围数据里出现过的值，每一项带 count；
+    状态下拉由前端按当前查询结果生成（页面有什么就有什么），这里不再提供。
     """
-    mapping = type_value_map(db)
-    penalty_all: list[str] = []
-    for value in db.scalars(select(DyViolation.penalty).distinct()):
-        for category in penalty_categories(str(value)):
-            if category not in penalty_all:
-                penalty_all.append(category)
-    penalty_all = [c for c in _PENALTY_ORDER if c in penalty_all] + sorted(
-        c for c in penalty_all if c not in _PENALTY_ORDER
-    )
-    status_all = sorted({str(v) for v in db.scalars(select(DyViolation.status).distinct()) if v})
+    shops = {shop.id: shop for shop in _target_shops(db, store_pk=store_pk, store_pks=store_pks, account=account)}
+    start, end = resolve_range(start_date, end_date)
 
-    base = _query_violations(
-        db,
-        store_pk=store_pk,
-        store_pks=store_pks,
-        account=account,
-        start_date=start_date,
-        end_date=end_date,
-    )
+    base: list[dict] = []
+    if _within_30d(start):
+        for pk, shop in shops.items():
+            items = fund_cache.read(cache_key(pk))
+            if not items:
+                continue
+            base.extend(row for row in _display_rows(items, shop) if _row_in_range(row, start, end))
+    else:
+        cached_rows = _live_read(_range_key(start, end))
+        if cached_rows:
+            base = list(cached_rows)
 
-    type_counts = {key: 0 for key in mapping if key}
-    penalty_counts = {name: 0 for name in penalty_all}
-    status_counts = {name: 0 for name in status_all}
-    for item, _shop_name in base:
-        categories = penalty_categories(item.penalty)
-        key = clean_violation_type(item.violation_type)
+    type_counts: dict[str, int] = {}
+    penalty_counts: dict[str, int] = {}
+    for row in base:
+        categories = penalty_categories(row.get("penalty", ""))
+        key = row.get("violation_type", "")
         type_ok = not violation_type or key == violation_type
         penalty_ok = not penalty or penalty in categories
-        status_ok = not status or item.status == status
-        if penalty_ok and status_ok:
+        status_ok = not status or row.get("status") == status
+        if penalty_ok and status_ok and key:
             type_counts[key] = type_counts.get(key, 0) + 1
         if type_ok and status_ok:
             for category in categories:
                 penalty_counts[category] = penalty_counts.get(category, 0) + 1
-        if type_ok and penalty_ok and item.status:
-            status_counts[item.status] = status_counts.get(item.status, 0) + 1
 
-    # 条数多的排前面，0 条的沉到最后
+    # 条数多的排前面；处罚方式按从轻到重的固定顺序
     types = [{"value": key, "count": num} for key, num in type_counts.items()]
     types.sort(key=lambda row: (-row["count"], row["value"]))
-    statuses = [{"value": key, "count": num} for key, num in status_counts.items()]
-    statuses.sort(key=lambda row: (-row["count"], row["value"]))
+    penalty_all = [c for c in _PENALTY_ORDER if c in penalty_counts] + sorted(
+        c for c in penalty_counts if c not in _PENALTY_ORDER
+    )
+    penalties = [{"value": name, "count": penalty_counts.get(name, 0)} for name in penalty_all]
 
-    shops = [row.name or row.shop_id for row in db.scalars(select(Shop).order_by(Shop.id.asc()))]
     # 抖音账号：抖店的登录账号（owner_account），后续加了新账号会自动出现在下拉里
     accounts = [a for a in db.scalars(select(Shop.owner_account).distinct().order_by(Shop.owner_account)) if a]
-    return {
-        "shops": shops,
-        "types": types,
-        "penalties": [{"value": name, "count": penalty_counts.get(name, 0)} for name in penalty_all],
-        "statuses": statuses,
-        "accounts": accounts,
-    }
+    return {"accounts": accounts, "types": types, "penalties": penalties}
 
 
-def _upsert_rows(db: Session, shop: Shop, items: list[dict]) -> int:
-    saved = 0
-    for item in items:
-        violation_id = str(item.get("violation_id") or "").strip()
-        if not violation_id:
-            continue
-        record = db.scalar(
-            select(DyViolation).where(DyViolation.store_pk == shop.id, DyViolation.violation_id == violation_id)
-        )
-        if record is None:
-            record = DyViolation(store_pk=shop.id, shop_id=shop.shop_id, violation_id=violation_id)
-            db.add(record)
-        record.violated_at = _parse_time(str(item.get("time") or ""))
-        record.violation_type = str(item.get("type") or "")[:50]
-        record.penalty = str(item.get("penalty") or "")[:50]
-        record.credit_change = str(item.get("credit") or "")[:50]
-        record.description = str(item.get("description") or "")
-        record.status = str(item.get("status") or "")[:20]
-        saved += 1
-    db.commit()
-    return saved
+def _pull_one(
+    store_pk: int, start_ts: int, end_ts: int, force: bool, cacheable: bool
+) -> tuple[bool, str, int, list[dict]]:
+    """拉一家店。返回（是否成功, 失败原因, 平台显示的总条数, 记录列表）。
 
-
-def _pull_one(store_pk: int, start_ts: int, end_ts: int, force: bool) -> tuple[bool, str, int]:
-    """拉一家店。返回（是否成功, 失败原因, 平台显示的总条数）。"""
+    cacheable=True（范围在近 30 天内）结果写 Redis 给定时缓存用；
+    cacheable=False（更早的范围）只返回给调用方放内存，不写 Redis 不入库。
+    """
     db = SessionLocal()
     try:
         shop = db.get(Shop, store_pk)
         if shop is None:
-            return False, "店铺不存在", 0
+            return False, "店铺不存在", 0, []
         if not force:
             cached = fund_cache.read(cache_key(shop.id))
             if cached is not None:
-                return True, "", -1
+                return True, "", -1, []
         cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
         if not cookies:
-            return False, "还没有这家店的登录凭证", 0
+            return False, "还没有这家店的登录凭证", 0, []
         try:
             items, platform_total = fetch_violation_list(cookies, start_ts, end_ts)
         except ShopAuthError as exc:
@@ -575,32 +685,40 @@ def _pull_one(store_pk: int, start_ts: int, end_ts: int, force: bool) -> tuple[b
             if not alive:
                 shop.login_status = "offline"
             db.commit()
-            return False, str(exc) or "登录已失效", 0
+            return False, str(exc) or "登录已失效", 0, []
         except ShopApiError as exc:
-            return False, exc.message or "接口失败", 0
-        _upsert_rows(db, shop, items)
-        fund_cache.write(cache_key(shop.id), items, CACHE_TTL_SECONDS)
+            return False, exc.message or "接口失败", 0, []
+        if cacheable:
+            fund_cache.write(cache_key(shop.id), items, CACHE_TTL_SECONDS)
         if platform_total > len(items):
             _LOG.warning("违规记录还没取全，应有 %s 条，实际 %s 条", platform_total, len(items))
-            return False, "请求过于频繁，请稍后再试", len(items)
-        return True, "", len(items)
+            return False, "请求过于频繁，请稍后再试", len(items), items
+        return True, "", len(items), items
     except Exception:
         _LOG.exception("拉取抖店 %s 违规失败", store_pk)
-        return False, "暂时没拉到", 0
+        return False, "暂时没拉到", 0, []
     finally:
         db.close()
 
 
-def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual") -> None:
+def _refresh_all(
+    start_ts: int,
+    end_ts: int,
+    force: bool,
+    trigger: str = "manual",
+    start_date: str = "",
+    end_date: str = "",
+) -> None:
     db = SessionLocal()
     try:
-        targets = [
-            (shop.id, shop.name)
-            for shop in db.scalars(select(Shop).order_by(Shop.id.asc()))
-            if shop.shop_cookie == 1 and shop.cookie_data
-        ]
+        shop_rows = list(db.scalars(select(Shop).order_by(Shop.id.asc())))
+        shops = {shop.id: shop for shop in shop_rows}
+        targets = [shop.id for shop in shop_rows if shop.shop_cookie == 1 and shop.cookie_data]
     finally:
         db.close()
+    start_day, end_day = resolve_range(start_date, end_date)
+    cacheable = _within_30d(start_day)
+    range_key = _range_key(start_day, end_day)
     if not targets:
         with _PROGRESS:
             _PROGRESS_SLOT.update(running=False, done=0, total=0, failed=0, message="还没有可以拉取的店铺凭证")
@@ -612,7 +730,7 @@ def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual
             last_trigger=trigger,
         )
         return
-    results: dict[int, tuple[bool, str, int]] = {}
+    results: dict[int, tuple[bool, str, int, list[dict]]] = {}
     seen: set[int] = set()
     with _PROGRESS:
         _PROGRESS_SLOT.update(
@@ -621,8 +739,8 @@ def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual
 
     gate = threading.Lock()
 
-    def pull(store_pk: int) -> tuple[bool, str, int]:
-        result = _pull_one(store_pk, start_ts, end_ts, force)
+    def pull(store_pk: int) -> tuple[bool, str, int, list[dict]]:
+        result = _pull_one(store_pk, start_ts, end_ts, force, cacheable)
         with gate:
             results[store_pk] = result
             seen.add(store_pk)
@@ -631,12 +749,19 @@ def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual
         return result
 
     try:
-        take_turns([pk for pk, _name in targets], pull)
+        take_turns(targets, pull)
     finally:
+        # 超出 30 天的拉取结果放进程内存给当前查询用；近 30 天的已在 _pull_one 里写进 Redis
+        if not cacheable:
+            all_rows: list[dict] = []
+            for pk, (_ok, _reason, _total, items) in results.items():
+                if items:
+                    all_rows.extend(_display_rows(items, shops.get(pk)))
+            _live_store(range_key, all_rows)
         stats = {"with_violation": 0, "rows": 0, "clear": 0}
         reasons: list[str] = []
         failed = 0
-        for _pk, (ok, reason, total) in results.items():
+        for _pk, (ok, reason, total, _items) in results.items():
             if not ok:
                 failed += 1
                 if reason and reason not in reasons and len(reasons) < 3:
@@ -673,22 +798,10 @@ def _refresh_all(start_ts: int, end_ts: int, force: bool, trigger: str = "manual
               len(targets), stats["with_violation"], stats["rows"], stats["clear"], failed)
 
 
-def _ts_range(start_date: str, end_date: str) -> tuple[int, int]:
-    """日期字符串 → 秒级时间戳区间。空值或格式不对就用默认近 30 天。"""
-    try:
-        start = _parse_date(start_date) if start_date.strip() else default_range()[0]
-        end = _parse_date(end_date) if end_date.strip() else default_range()[1]
-    except ValueError:
-        start, end = default_range()
-    start_ts = int(datetime.combine(start, datetime.min.time()).timestamp())
-    end_ts = int(datetime.combine(end + timedelta(days=1), datetime.min.time()).timestamp())
-    return start_ts, end_ts
-
-
 def _do_refresh(start_date: str, end_date: str, trigger: str) -> None:
     """真正干活：拉一遍、写进度、写状态。调用前需要先拿到 _JOB 锁。"""
     start_ts, end_ts = _ts_range(start_date, end_date)
-    _refresh_all(start_ts, end_ts, force=True, trigger=trigger)
+    _refresh_all(start_ts, end_ts, force=True, trigger=trigger, start_date=start_date, end_date=end_date)
 
 
 def run_refresh_sync(start_date: str = "", end_date: str = "", trigger: str = "schedule") -> dict:

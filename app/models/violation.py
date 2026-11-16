@@ -23,7 +23,7 @@ class DyViolation(Base, TimestampMixin):
     violation_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     violated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     violation_type: Mapped[str] = mapped_column(String(50), nullable=False, default="")
-    penalty: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    penalty: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     credit_change: Mapped[str] = mapped_column(String(50), nullable=False, default="")
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="")

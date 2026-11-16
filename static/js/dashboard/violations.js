@@ -267,6 +267,7 @@
         params.set("violation_type", el("vio-type").value || "");
         params.set("penalty", el("vio-penalty").value || "");
         params.set("status", el("vio-status").value || "");
+        params.set("due", el("vio-due").value || "");
         if (pinnedIds) params.set("violation_ids", pinnedIds);
         params.set("start_date", el("vio-start").value || "");
         params.set("end_date", el("vio-end").value || "");
@@ -281,10 +282,9 @@
             if (mySeq !== seq) return;
             // 抖音账号：目前只有一个，以后加了账号这里会自动多出选项
             fillSelect(el("vio-account"), data.accounts || []);
-            // 违规类型、处罚方式、状态都跟着条件联动
+            // 违规类型、处罚方式跟着条件联动；状态下拉由 paint() 按当前结果生成
             fillSelect(el("vio-type"), data.types || []);
             fillSelect(el("vio-penalty"), data.penalties || []);
-            fillSelect(el("vio-status"), data.statuses || []);
         }).catch(function () {});
     }
 
@@ -295,15 +295,22 @@
     function query(silent) {
         var params = filterParams();
         var mySeq = ++seq;
-        if (!silent) body.innerHTML = '<tr><td colspan="7" class="empty">加载中</td></tr>';
+        if (!silent) body.innerHTML = '<tr><td colspan="8" class="empty"><span class="vio-spinner"></span>加载中…</td></tr>';
         Dash.request("/violations?" + params.toString()).then(function (data) {
             if (mySeq !== seq) return; // 已经有更新的查询了，丢掉旧结果
+            if (data.pulling) {
+                // 这个时间范围超出了近 30 天的定时缓存，后台正在向抖店拉取，
+                // 跟着进度走，拉完会自动再查一次
+                body.innerHTML = '<tr><td colspan="8" class="empty">正在向抖店拉取这个时间范围的数据，拉完自动显示…</td></tr>';
+                followRunning();
+                return;
+            }
             items = data.items || [];
             paint();
             refreshOptions();
         }).catch(function (err) {
             if (mySeq !== seq) return;
-            body.innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="8" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
         el("btn-query-violations").classList.remove("is-dirty");
     }
@@ -330,14 +337,67 @@
             + "</td>";
     }
 
-    // 处罚方式可能有好几种，拆成一个个小标签
+    // 带「N天/N个自然日」的处罚，取最大的天数（一段处罚里可能有多个数字）
+    function penaltyMaxDays(item) {
+        var matches = String(item || "").match(/\d+\s*(?:个\s*自\s*然\s*日|天)/g);
+        if (!matches) return 0;
+        var days = 0;
+        matches.forEach(function (m) {
+            var digits = /^\d+/.exec(m);
+            var n = digits ? parseInt(digits[0], 10) : 0;
+            if (n > days) days = n;
+        });
+        return days;
+    }
+
+    // 处罚到期时间 = 违规时间 + 处罚天数（多种处罚取最晚的到期日）
+    function dueDateText(row) {
+        var text = (row.penalty || row.penalty_category || "").trim();
+        if (!text || !row.violated_at) return "";
+        var parts = String(row.violated_at).split(" ")[0].split("-");
+        if (parts.length !== 3) return "";
+        var at = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (isNaN(at.getTime())) return "";
+        var chips = text.split(/[;；、]/);
+        var maxDays = 0;
+        chips.forEach(function (item) {
+            var days = penaltyMaxDays(item);
+            if (days > maxDays) maxDays = days;
+        });
+        if (!maxDays) return "";
+        at.setDate(at.getDate() + maxDays);
+        return fmtDate(at);
+    }
+
     function penaltyCell(row) {
-        var text = (row.penalty_category || row.penalty || "").trim();
+        var text = (row.penalty || row.penalty_category || "").trim();
         if (!text) return '<td class="vio-penalty"><span class="vio-muted">—</span></td>';
-        var chips = text.split("、").filter(function (item) { return item; });
+        var chips = text.split(/[;；]/).map(function (item) { return item.trim(); }).filter(function (item) { return item; });
         return '<td class="vio-penalty">' + chips.map(function (item) {
             return '<span class="vio-chip">' + Dash.escapeHtml(item) + "</span>";
         }).join("") + "</td>";
+    }
+
+    // 到期状态：处罚还在生效 → "active"，已到期/解除 → "passed"，没有天数 → ""
+    // 优先用后端算好的 due_date（到期筛选也在后端做），没有再按处罚文本现算
+    function dueState(row) {
+        var due = row.due_date || dueDateText(row);
+        if (!due) return "";
+        var parts = due.split("-");
+        var at = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (isNaN(at.getTime())) return "";
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return at.getTime() < today.getTime() ? "passed" : "active";
+    }
+
+    // 处罚到期时间单独一列：小于今天（处罚已到期/解除）标绿色，大于等于今天（生效中）标红色
+    function dueCell(row) {
+        var due = row.due_date || dueDateText(row);
+        if (!due) return '<td class="vio-due"><span class="vio-muted">—</span></td>';
+        var state = dueState(row);
+        var tone = state === "passed" ? " vio-due-passed" : state === "active" ? " vio-due-active" : "";
+        return '<td class="vio-due' + tone + '">' + Dash.escapeHtml(due) + "</td>";
     }
 
     function statusCell(status) {
@@ -363,8 +423,16 @@
         el("vio-count").innerHTML = "当前 <b class=\"vio-count-num\">" + rows.length + "</b> 条"
             + (revoked ? "，<b class=\"vio-count-num\">" + revoked + "</b> 条违规已撤销" : "")
             + "。";
+        // 状态下拉不写死：当前结果里出现过的状态就是选项（页面有什么就有什么）
+        var statusSet = [];
+        rows.forEach(function (row) {
+            var value = (row.status || "").trim();
+            if (value && statusSet.indexOf(value) < 0) statusSet.push(value);
+        });
+        statusSet.sort();
+        fillSelect(el("vio-status"), statusSet);
         if (!rows.length) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
+            body.innerHTML = '<tr><td colspan="8" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
             return;
         }
         body.innerHTML = rows.map(function (row) {
@@ -375,6 +443,7 @@
                 + "<td class=\"vio-type\" title=\"" + Dash.escapeHtml(row.violation_type_raw || row.violation_type || "") + "\">"
                 + Dash.escapeHtml(row.violation_type || "—") + "</td>"
                 + penaltyCell(row)
+                + dueCell(row)
                 + "<td class=\"vio-desc\" title=\"" + Dash.escapeHtml(row.description_full || row.description || "") + "\">"
                 + Dash.escapeHtml(row.description || "—") + "</td>"
                 + statusCell(row.status)
@@ -473,6 +542,11 @@
             clearPinned();
             autoApply();
         });
+    });
+    // 处罚到期筛选在后端做，可能要等一下：显示转圈提示，免得用户以为卡死了
+    el("vio-due").addEventListener("change", function () {
+        clearPinned();
+        query(false);
     });
     // 时间下拉一改就把起止日期跟着换掉，然后自动查
     el("vio-range").addEventListener("change", function () {

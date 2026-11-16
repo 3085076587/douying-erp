@@ -147,12 +147,13 @@
 #vio-table tbody tr { transition: background 0.15s ease; }
 
 /* 列宽：合计 100%，不需要横向滚动 */
-#vio-table .vio-col-shop { width: 9%; }
-#vio-table .vio-col-time { width: 10.5%; }
-#vio-table .vio-col-id { width: 12.5%; }
-#vio-table .vio-col-type { width: 15%; }
-#vio-table .vio-col-penalty { width: 15%; }
-#vio-table .vio-col-desc { width: 29.5%; }
+#vio-table .vio-col-shop { width: 8%; }
+#vio-table .vio-col-time { width: 9.5%; }
+#vio-table .vio-col-id { width: 11%; }
+#vio-table .vio-col-type { width: 13%; }
+#vio-table .vio-col-penalty { width: 18.5%; }
+#vio-table .vio-col-due { width: 10.5%; }
+#vio-table .vio-col-desc { width: 21%; }
 #vio-table .vio-col-status { width: 8.5%; }
 
 #vio-table td.vio-shop { font-weight: 500; }
@@ -172,21 +173,54 @@
     letter-spacing: -0.1px;
 }
 #vio-table td.vio-type { color: #c2410c; }
-#vio-table td.vio-desc { color: #57534e; cursor: default; }
+#vio-table td.vio-desc {
+    color: #57534e;
+    cursor: default;
+    word-break: break-all;
+    line-height: 1.7;
+}
 #vio-table td.vio-status { white-space: nowrap; }
 
-/* 处罚方式：每种处罚一个小标签，一眼看清有几种 */
+/* 处罚方式：每种处罚一个小标签 */
 .vio-chip {
     display: inline-block;
-    margin: 0 4px 4px 0;
+    max-width: 100%;
+    margin: 0;
     padding: 1px 8px;
     border-radius: 999px;
     background: #fff4ea;
     color: #b45309;
     font-size: 12px;
     line-height: 1.7;
-    white-space: nowrap;
+    white-space: normal;
+    word-break: break-all;
 }
+/* 处罚到期筛选等后端返回时的转圈提示 */
+.vio-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    border: 2px solid var(--border);
+    border-top-color: #b45309;
+    border-radius: 50%;
+    vertical-align: -2px;
+    animation: vio-spin 0.8s linear infinite;
+}
+@keyframes vio-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 处罚到期时间：独立一列，违规时间 + 处罚天数 */
+#vio-table td.vio-due {
+    font-size: 12.5px;
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+/* 到期日 < 今天：处罚已结束，绿色 */
+#vio-table td.vio-due.vio-due-passed { color: #16a34a; font-weight: 600; }
+/* 到期日 >= 今天：处罚还在生效，红色 */
+#vio-table td.vio-due.vio-due-active { color: #dc2626; font-weight: 600; }
 /* 状态：胶囊标签 */
 .vio-tag {
     display: inline-block;

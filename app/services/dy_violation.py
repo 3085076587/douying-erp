@@ -68,9 +68,9 @@ def _score_text(value: Any) -> str:
 def _penalty_text(enums: dict[str, dict[str, str]], value: Any) -> str:
     if isinstance(value, list):
         texts = [_enum_label(enums, "penalize_type", item) or str(item) for item in value]
-        return "、".join(text for text in texts if text)[:50]
+        return "、".join(text for text in texts if text)[:255]
     label = _enum_label(enums, "penalize_type", value)
-    return (label or str(value or ""))[:50]
+    return (label or str(value or ""))[:255]
 
 
 def _type_text(enums: dict[str, dict[str, str]], item: dict) -> str:
@@ -97,7 +97,32 @@ def _execute_penalty(item: dict, enums: dict[str, dict[str, str]]) -> str:
         text = "、".join(names)
     if not text:
         text = _penalty_text(enums, _first(item, "penalize_type", "penalty_type", "punish_type"))
-    return text[:50]
+    return text[:255]
+
+
+def _display_status(item: dict, enums: dict[str, dict[str, str]]) -> str:
+    """处置状态：对齐抖店后台「处置状态」列的显示。
+
+    原站这一列读的是处置项的执行分组（status_text_detail.top_exec_desc_list 的组名），
+    不是 main_status_text。实测对应关系：
+      已处置(执行中 plan_exec_status=1) → 已处置
+      已撤销(plan_exec_status=2)        → 已撤销
+      已解除(plan_exec_status=3)        → 处置已解除
+    典型场景：违规单撤销了，但限单等处置已执行满/到期解除，main 是「已撤销」，
+    原站显示「处置已解除」——所以要按 exec 分组显示，主状态只做兜底。
+    """
+    detail = item.get("status_text_detail") if isinstance(item.get("status_text_detail"), dict) else {}
+    exec_map = detail.get("top_exec_desc_list")
+    if isinstance(exec_map, dict) and exec_map:
+        groups = [str(key).strip() for key in exec_map.keys() if str(key).strip()]
+        if len(groups) == 1:
+            # 全部处置都在同一状态：已解除要按原站口径带上「处置」前缀
+            return ("处置" + groups[0]) if groups[0] == "已解除" else groups[0]
+        # 状态混着来（如部分撤销部分解除）接口没有单一结论，退回主状态
+    main = str(detail.get("main_status_text") or "").strip()
+    if main:
+        return main
+    return _enum_label(enums, "penalty_status", _first(item, "penalty_status", "status"))
 
 
 def _shape_violation(item: dict, enums: dict[str, dict[str, str]]) -> dict:
@@ -105,12 +130,10 @@ def _shape_violation(item: dict, enums: dict[str, dict[str, str]]) -> dict:
 
     抖店返回的真实结构（2026-11 实测）：
       ticket_id / violation_time / node_name / show_violation_reason /
-      violation_detail / status_text_detail.main_status_text / execute_plans[].exec_type_name
+      violation_detail / status_text_detail(main_status_text + top_exec_desc_list)
+      / execute_plans[].exec_type_name
     """
-    detail = item.get("status_text_detail") if isinstance(item.get("status_text_detail"), dict) else {}
-    status_text = str(detail.get("main_status_text") or "").strip()
-    if not status_text:
-        status_text = _enum_label(enums, "penalty_status", _first(item, "penalty_status", "status"))
+    status_text = _display_status(item, enums)
     description = str(item.get("violation_detail") or "").strip() or str(
         _first(item, "show_violation_reason", "violation_reason", "reason", "remark")
     ).strip()
