@@ -113,6 +113,26 @@ class CenterProductRow(BaseModel):
     good_rate: str = ""
 
 
+class LiveProductRow(BaseModel):
+    product_id: str = ""
+    product_name: str = ""
+    pay_amount: str = ""
+    refund_amount: str = ""
+    show_user_count: str = ""
+    pay_user_count: str = ""
+    avg_pay: str = ""
+    refund_order_count: str = ""
+    order_count: str = ""
+
+
+class LiveProductList(BaseModel):
+    store_pk: int
+    shop_id: str = ""
+    name: str = ""
+    error: str = ""
+    items: list[LiveProductRow]
+
+
 class CenterProductList(BaseModel):
     preset: str = "realtime"
     date_type: int = 1

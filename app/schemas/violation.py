@@ -20,7 +20,6 @@ class ViolationRow(BaseModel):
     shop_name: str = ""
     violation_id: str = ""
     violated_at: str = ""
-    due_date: str = ""  # 处罚到期日（违规时间+处罚天数），处罚没有天数时为空
     violation_type: str = ""
     violation_type_raw: str = ""  # 抖店原始类型文本（带处置后缀），鼠标悬浮时显示
     penalty: str = ""
@@ -33,7 +32,6 @@ class ViolationRow(BaseModel):
 class ViolationList(BaseModel):
     items: list[ViolationRow]
     total: int = 0
-    pulling: bool = False  # True 表示这个时间范围正在后台向抖店拉取，页面等进度后自动再查
 
 
 class ViolationOptionItem(BaseModel):
@@ -44,11 +42,12 @@ class ViolationOptionItem(BaseModel):
 
 
 class ViolationOptions(BaseModel):
-    """筛选框里的候选项，从已有数据里取。状态下拉由前端按查询结果生成。"""
+    """筛选框里的候选项，从已有数据里取。"""
 
     shops: list[str] = []
     types: list[ViolationOptionItem] = []
     penalties: list[ViolationOptionItem] = []
+    statuses: list[ViolationOptionItem] = []
     accounts: list[str] = []
 
 

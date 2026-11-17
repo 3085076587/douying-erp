@@ -71,13 +71,12 @@ def list_violations(
     violation_type: str = Query(default=""),
     penalty: str = Query(default="", description="处罚方式类型（归类后的）"),
     status: str = Query(default=""),
-    due: str = Query(default="", description="处罚到期筛选：active=未到期，passed=已到期，空=不限"),
     start_date: str = Query(default="", max_length=10),
     end_date: str = Query(default="", max_length=10),
     violation_ids: str = Query(default="", description="指定违规编号，逗号分隔。传入时只返回这些单"),
 ) -> ViolationList:
     picked_ids = [part.strip() for part in violation_ids.split(",") if part.strip()] if violation_ids else None
-    data = violation_service.query_violations(
+    rows = violation_service.list_violations(
         db,
         store_pk=store_pk,
         store_pks=_parse_store_pks(store_pks),
@@ -85,13 +84,12 @@ def list_violations(
         violation_type=violation_type,
         penalty=penalty,
         status=status,
-        due=due,
         start_date=start_date,
         end_date=end_date,
         violation_ids=picked_ids,
     )
-    items = [ViolationRow.model_validate(row) for row in data["rows"]]
-    return ViolationList(items=items, total=len(items), pulling=bool(data.get("pulling")))
+    items = [ViolationRow.model_validate(row) for row in rows]
+    return ViolationList(items=items, total=len(items))
 
 
 def _progress_payload() -> ViolationProgress:

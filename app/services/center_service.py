@@ -17,6 +17,7 @@ from app.services.dy_client import FXG_HOST, ShopApiError, ShopAuthError, cookie
 from app.services.dy_compass import (
     ProductPartial,
     fetch_financial_summary,
+    fetch_live_products,
     fetch_operating_cards,
     fetch_product_list,
     fetch_promotion_window,
@@ -68,7 +69,7 @@ def progress() -> dict:
         return dict(_PROGRESS_SLOT)
 
 
-_PRODUCT_PRESETS = ("realtime", "1", "7", "30")
+_PRODUCT_PRESETS = ("1", "7", "30")
 
 
 def _parse_day(value: str, label: str) -> date:
@@ -1003,6 +1004,74 @@ def _product_row(shop: Shop, info: dict | None = None, error: str = "") -> dict:
     return row
 
 
+_LIVE_FIELDS = (
+    ("pay_amount", "money", "pay_amt"),
+    ("refund_amount", "money", "refund_amt"),
+    ("show_user_count", "count", "product_show_ucnt"),
+    ("pay_user_count", "count", "pay_ucnt"),
+    ("avg_pay", "money", "avg_pay_user_amt"),
+    ("refund_order_count", "count", "refund_cnt"),
+    ("order_count", "count", "pay_cnt"),
+)
+
+
+def _shape_live_row(info: dict) -> dict | None:
+    product = info.get("product_info") if isinstance(info.get("product_info"), dict) else {}
+    row = {
+        "product_id": _text_cell(product.get("product_id_value")),
+        "product_name": _text_cell(product.get("product_name_value")),
+    }
+    if not row["product_id"] and not row["product_name"]:
+        named = ""
+        for key in ("product_name", "name", "title"):
+            value = product.get(key) if isinstance(product.get(key), str) else info.get(key)
+            if isinstance(value, str) and value.strip():
+                named = value.strip()
+                break
+        if named:
+            row["product_name"] = named
+        elif not any(_product_value(info, code) for _field, _kind, code in _LIVE_FIELDS):
+            return None
+        else:
+            row["product_name"] = "商品"
+    for field, kind, code in _LIVE_FIELDS:
+        values = _product_value(info, code)
+        empty = "0" if kind == "count" else "—"
+        row[field] = _operating_text(kind, values.get("value"), empty=empty)
+    return row
+
+
+def read_live_products(db: Session, store_pk: int) -> dict:
+    """点开店铺明细时现拉这一家的实时商品。不写 Redis。"""
+    shop = db.get(Shop, store_pk)
+    if shop is None:
+        raise ShopApiError("没有这家店")
+    cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
+    if not cookies or shop.shop_cookie != 1:
+        raise ShopApiError("还没有这家店的登录凭证")
+    try:
+        raw_rows, error = fetch_live_products(cookies, str(shop.shop_id or ""))
+    finally:
+        keep_shop_jar(shop, cookies)
+        db.commit()
+    items: list[dict] = []
+    for raw in raw_rows:
+        info = raw.get("cell_info") if isinstance(raw, dict) else None
+        if isinstance(info, dict):
+            shaped = _shape_live_row(info)
+            if shaped:
+                items.append(shaped)
+    if raw_rows and not items and not error:
+        error = "罗盘返回的商品格式对不上"
+    return {
+        "store_pk": shop.id,
+        "shop_id": shop.shop_id or "",
+        "name": shop.name or "",
+        "error": (error or "")[:200],
+        "items": items,
+    }
+
+
 def _shape_product_rows(shop: Shop, raw_rows: list[dict]) -> list[dict]:
     shaped = []
     for raw in raw_rows:
@@ -1378,7 +1447,7 @@ def start_product_refresh(preset: str, start: str = "", end: str = "") -> dict:
 
 
 def start_product_defaults() -> dict:
-    """10 分钟任务刷新商品明细的实时、近 1 天、近 7 天、近 30 天。一家店只进一次罗盘。"""
+    """10 分钟任务刷新商品明细的近 1 天、近 7 天、近 30 天。一家店只进一次罗盘。"""
     return _enqueue_product_job([{"preset": preset, "start": "", "end": ""} for preset in _PRODUCT_PRESETS])
 
 
@@ -1455,7 +1524,7 @@ def _wait_idle(reader) -> None:
 
 
 def run_center_cycle() -> None:
-    """先更新店铺明细的四个固定时间，再更新商品明细的四个固定时间，然后把下次时间写进 Redis。"""
+    """先更新店铺明细的四个固定时间，再更新商品明细的近 1 天、近 7 天、近 30 天，然后把下次时间写进 Redis。"""
     _COMPASS_TURN.acquire()
     try:
         for preset in ("realtime", "1", "7", "30"):
@@ -1473,7 +1542,7 @@ def run_center_cycle() -> None:
         with _SCHEDULE_LOCK:
             _SCHEDULE.update(payload)
         fund_cache.write_obj("center_schedule", payload, _CACHE_TTL_SECONDS)
-        _LOG.info("店铺明细和商品明细四个时间下次更新 %s", payload["next_update"])
+        _LOG.info("店铺明细和商品明细下次更新 %s", payload["next_update"])
     finally:
         _COMPASS_TURN.release()
 

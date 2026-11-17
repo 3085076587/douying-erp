@@ -34,7 +34,6 @@
         ["custom", "自定义"]
     ];
     var PRODUCT_OPTIONS = [
-        ["realtime", "实时"],
         ["1", "近1天"],
         ["7", "近7天"],
         ["30", "近30天"],
@@ -73,7 +72,7 @@
         var note = el("center-range-note");
         if (!note) return;
         if (tab === "products") {
-            note.textContent = "默认近7天。实时、近1天、近7天、近30天不用填日期。自定义选开始和结束，最多 90 天。";
+            note.textContent = "默认近7天。近1天、近7天、近30天不用填日期。自定义选开始和结束，最多 90 天。";
             return;
         }
         note.textContent = "默认实时。近 1 天、近 7 天、近 30 天截止到昨天。自定义只能选今天和前 90 天。";
@@ -188,11 +187,12 @@
         var current = scheduleState;
         var text = "";
         if (tab === "products" && current && current.next_update) {
-            text = "每" + (current.interval_minutes || 10) + "分钟更新实时、近1天、近7天、近30天，下次更新 " + current.next_update;
+            text = "每" + (current.interval_minutes || 10) + "分钟更新近1天、近7天、近30天，下次更新 " + current.next_update;
         } else if (tab === "shops" && current && current.next_update) {
             text = "每" + (current.interval_minutes || 10) + "分钟更新一次，下次更新 " + current.next_update;
         }
         node.textContent = text;
+        node.classList.toggle("hidden", !text);
     }
 
     function watchSchedule() {
@@ -423,6 +423,7 @@
         var body = el("center-home-tbody");
         var items = sortedCopy(visibleItems(homeData.items || []), homeSort);
         paintSortMarks();
+        paintHeadSummary(items);
         if (!(homeData.items && homeData.items.length)) {
             body.innerHTML = '<tr><td colspan="9" class="empty">还没有店铺</td></tr>';
             return;
@@ -595,6 +596,57 @@
         return '<td><div class="center-shop-value">' + Dash.escapeHtml(value || "—") + "</div></td>";
     }
 
+    function liveCell(item) {
+        var shopId = String(item.store_pk || "").replace(/\D/g, "");
+        return '<button type="button" class="btn center-live-btn" data-live-shop="' + shopId
+            + '" data-live-name="' + Dash.escapeHtml(item.name || "") + '">明细</button>';
+    }
+
+    function paintLive(data) {
+        var body = el("live-tbody");
+        var items = (data && data.items) || [];
+        var note = el("live-note");
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="8" class="empty">'
+                + Dash.escapeHtml((data && data.error) || "这家店现在没有商品数据") + "</td></tr>";
+            note.textContent = "";
+            return;
+        }
+        note.textContent = data.error ? ("后面的页没有拿全：" + data.error) : "实时数据，不会保存";
+        body.innerHTML = items.map(function (item) {
+            return "<tr><td><div class=\"center-product-name\">" + Dash.escapeHtml(item.product_name || "未命名商品")
+                + "</div><div class=\"center-home-id\">" + Dash.escapeHtml(item.product_id || "") + "</div></td>"
+                + "<td>" + Dash.escapeHtml(item.pay_amount || "—") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.refund_amount || "—") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.show_user_count || "0") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.pay_user_count || "0") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.avg_pay || "—") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.refund_order_count || "0") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.order_count || "0") + "</td></tr>";
+        }).join("");
+    }
+
+    function closeLive() {
+        el("live-mask").classList.add("hidden");
+    }
+
+    function openLive(storePk, shopName) {
+        var mask = el("live-mask");
+        el("live-title").textContent = (shopName || "店铺") + " 商品实时";
+        el("live-note").textContent = "正在获取实时商品…";
+        el("live-tbody").innerHTML = '<tr><td colspan="8" class="empty">正在获取…</td></tr>';
+        mask.classList.remove("hidden");
+        Dash.request("/center/shops/" + storePk + "/live-products").then(function (data) {
+            if (mask.classList.contains("hidden")) return;
+            paintLive(data);
+        }).catch(function (err) {
+            if (mask.classList.contains("hidden")) return;
+            el("live-note").textContent = "";
+            el("live-tbody").innerHTML = '<tr><td colspan="8" class="empty">'
+                + Dash.escapeHtml(err.message || "获取失败") + "</td></tr>";
+        });
+    }
+
     function scoreCell(value, change) {
         var sub = "";
         if (change) {
@@ -668,15 +720,27 @@
     function paintHeadSummary(items) {
         var node = el("center-summary");
         if (!node) return;
-        if (tab !== "shops" && tab !== "products") {
+        var fields;
+        if (tab === "home") {
+            fields = [
+                ["待支付", formatCount(sumField(items || [], "pending_pay"))],
+                ["待发货", formatCount(sumField(items || [], "pending_ship"))],
+                ["异常包裹", formatCount(sumField(items || [], "abnormal_package"))],
+                ["待处理售后", formatCount(sumField(items || [], "pending_aftersale"))],
+                ["服务工单", formatCount(sumField(items || [], "service_ticket"))],
+                ["待整改风险点", formatCount(sumField(items || [], "risk_point"))],
+                ["待处理违规", formatCount(sumField(items || [], "pending_violation"))]
+            ];
+        } else if (tab === "shops" || tab === "products") {
+            fields = [
+                ["成交金额", formatMoney(sumField(items || [], "pay_amount"))],
+                ["成交订单数", formatCount(sumField(items || [], "order_count"))],
+                ["成交退款金额（支付时间）", formatMoney(sumField(items || [], "refund_amount"))]
+            ];
+        } else {
             node.innerHTML = "";
             return;
         }
-        var fields = [
-            ["成交金额", formatMoney(sumField(items || [], "pay_amount"))],
-            ["成交订单数", formatCount(sumField(items || [], "order_count"))],
-            ["成交退款金额（支付时间）", formatMoney(sumField(items || [], "refund_amount"))]
-        ];
         node.innerHTML = fields.map(function (field) {
             return '<span class="center-summary-item"><span class="label">' + field[0] + "</span><b>"
                 + Dash.escapeHtml(field[1]) + "</b></span>";
@@ -710,16 +774,19 @@
             var rates = metricCell(item.good_rate_30d)
                 + metricCell(item.mid_rate_30d)
                 + metricCell(item.bad_rate_30d);
+            var detail = "<td>" + liveCell(item) + "</td>";
             if (item.sync_error) {
                 return "<tr>" + name + scores + login
-                    + '<td colspan="4" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td>"
+                    + '<td colspan="3" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td>"
+                    + detail
                     + rates + "</tr>";
             }
             return "<tr>" + name + scores + login
                 + metricCell(item.pay_amount)
                 + metricCell(item.order_count)
                 + metricCell(item.refund_rate)
-                + metricCell(item.refund_amount)
+                + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_amount || "—") + "</div>"
+                + liveCell(item) + "</td>"
                 + rates
                 + "</tr>";
         }).join("");
@@ -1042,11 +1109,14 @@
             if (shellEnd) el("center-end").value = shellEnd;
         }
         fillPresetDates(false);
-        el("view-center").classList.toggle("center-has-summary", tab === "shops" || tab === "products");
+        el("view-center").classList.toggle("center-has-summary", tab === "home" || tab === "shops" || tab === "products");
         paintSchedule();
         paintShellFilters();
         if (tab === "overview") ensureOverview();
-        if (tab === "home") resumeHome();
+        if (tab === "home") {
+            if (homeData) paintHome();
+            resumeHome();
+        }
         if (tab === "shops") ensureShops();
         if (tab === "products") ensureProducts();
     }
@@ -1152,6 +1222,14 @@
             else if (tab === "products") refreshProducts();
             else paintHome();
         });
+        el("center-shops-tbody").addEventListener("click", function (event) {
+            var button = event.target.closest("[data-live-shop]");
+            if (!button) return;
+            var storePk = button.getAttribute("data-live-shop") || "";
+            if (!storePk) return;
+            openLive(storePk, button.getAttribute("data-live-name"));
+        });
+        el("live-close").addEventListener("click", closeLive);
         el("center-pane-home").addEventListener("click", function (event) {
             var button = event.target.closest("[data-vio-shop]");
             if (!button || !window.Vio || !window.Vio.openShop) return;

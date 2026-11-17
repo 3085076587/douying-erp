@@ -158,8 +158,10 @@
 
 #vio-table td.vio-shop { font-weight: 500; }
 #vio-table td.vio-time { white-space: nowrap; }
-#vio-table td.vio-time .vio-date { display: block; font-variant-numeric: tabular-nums; }
-#vio-table td.vio-time .vio-clock {
+#vio-table td.vio-time .vio-date,
+#vio-table td.vio-due .vio-date { display: block; font-variant-numeric: tabular-nums; }
+#vio-table td.vio-time .vio-clock,
+#vio-table td.vio-due .vio-clock {
     display: block;
     margin-top: 1px;
     color: var(--text-secondary);

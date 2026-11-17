@@ -6,6 +6,7 @@ from app.core.deps import require_section
 from app.db.session import get_db
 from app.schemas.center import (
     CenterHomeList,
+    LiveProductList,
     CenterOverviewList,
     CenterProgress,
     CenterProductList,
@@ -17,6 +18,7 @@ from app.services.center_service import (
     center_schedule,
     product_progress,
     progress,
+    read_live_products,
     read_overview,
     read_products,
     read_shops,
@@ -96,6 +98,19 @@ def shops(
     return CenterShopList.model_validate(data)
 
 
+@router.get("/shops/{store_pk}/live-products", response_model=LiveProductList, summary="一家店的实时商品")
+def shop_live_products(
+    store_pk: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_section("center")),
+) -> LiveProductList:
+    try:
+        data = read_live_products(db, store_pk)
+    except (ShopApiError, ShopAuthError) as exc:
+        raise _shop_error(exc) from exc
+    return LiveProductList.model_validate(data)
+
+
 @router.get("/shops/progress", response_model=CenterProgress, summary="经营概况拉取进度")
 def shops_progress(_user=Depends(require_section("center"))) -> CenterProgress:
     return CenterProgress.model_validate(shop_progress())
@@ -105,7 +120,7 @@ def shops_progress(_user=Depends(require_section("center"))) -> CenterProgress:
 def products(
     db: Session = Depends(get_db),
     _user=Depends(require_section("center")),
-    preset: str = Query(default="realtime", max_length=16),
+    preset: str = Query(default="7", max_length=16),
     start: str = Query(default="", max_length=10),
     end: str = Query(default="", max_length=10),
 ) -> CenterProductList:

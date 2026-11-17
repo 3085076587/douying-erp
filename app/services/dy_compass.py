@@ -533,3 +533,134 @@ def _collect_products(
             break
         page_no += 1
     return rows
+
+
+_LIVE_PRODUCT_INDEXES = ",".join(
+    (
+        "pay_amt",
+        "refund_amt",
+        "product_show_ucnt",
+        "pay_ucnt",
+        "avg_pay_user_amt",
+        "refund_cnt",
+        "pay_cnt",
+    )
+)
+_LIVE_PAGE_SIZE = 10
+_LIVE_PAGE_CAP = 20
+
+
+def fetch_live_products(cookies: dict[str, str], shop_id: str) -> tuple[list[dict], str]:
+    """店铺首页「看商品」的实时商品。只取这一次，调用方不要写缓存。"""
+    _enter_compass(cookies, shop_id)
+    try:
+        return _collect_live_products(cookies)
+    except ShopAuthError as first:
+        if not _already_in_shop(cookies, shop_id):
+            raise
+        return _reenter_live(cookies, shop_id, first)
+    except ShopApiError as exc:
+        if "服务器错误" not in (exc.message or ""):
+            raise
+        return _reenter_live(cookies, shop_id, exc)
+
+
+def _reenter_live(cookies: dict[str, str], shop_id: str, first: ShopApiError) -> tuple[list[dict], str]:
+    try:
+        enter_listed_shop(cookies, shop_id, host="compass.jinritemai.com", login_source="compass")
+    except ShopApiError as exc:
+        if "登录名单里没有这家店" in (exc.message or ""):
+            raise first from exc
+        raise
+    return _collect_live_products(cookies)
+
+
+def _live_table(payload: dict) -> tuple[list[dict], int]:
+    data = payload.get("data")
+    page = payload.get("page_result") if isinstance(payload.get("page_result"), dict) else {}
+    if isinstance(data, dict):
+        nested = data.get("page_result")
+        if isinstance(nested, dict):
+            page = nested
+        found = None
+        for key in ("data_result", "data", "list", "product_list"):
+            if isinstance(data.get(key), list):
+                found = data[key]
+                break
+        data = found if found is not None else []
+    if data is None:
+        data = []
+    if not isinstance(data, list):
+        raise ShopApiError("罗盘没有返回商品列表")
+    try:
+        total = int(page.get("total") or 0)
+    except (TypeError, ValueError):
+        total = 0
+    return [item for item in data if isinstance(item, dict)], total
+
+
+def _live_page(cookies: dict[str, str], page_no: int) -> dict:
+    today = date.today().strftime("%Y/%m/%d 00:00:00")
+
+    def once() -> dict:
+        try:
+            response = httpx.get(
+                f"{_HOST}/compass_api/shop/common/homepage/product/realtime_product_list",
+                params={
+                    "date_type": "1",
+                    "begin_date": today,
+                    "end_date": today,
+                    "activity_id": "",
+                    "is_activity": "false",
+                    "page_no": str(page_no),
+                    "page_size": str(_LIVE_PAGE_SIZE),
+                    "sort_field": "pay_amt",
+                    "is_asc": "false",
+                    "index_selected": _LIVE_PRODUCT_INDEXES,
+                },
+                cookies=_cookies(cookies),
+                headers={
+                    "User-Agent": _UA,
+                    "Referer": f"{_HOST}/shop",
+                    "Accept": "application/json, text/plain, */*",
+                },
+                timeout=30,
+                follow_redirects=False,
+            )
+        except httpx.HTTPError as exc:
+            raise ShopApiError("罗盘暂时连不上") from exc
+        if response.status_code in {401, 403}:
+            raise ShopAuthError("登录已失效")
+        fresh = dict(cookies)
+        for key, value in response.cookies.items():
+            if key and value:
+                fresh[key] = value
+        cookies.clear()
+        cookies.update(fresh)
+        try:
+            body = response.json()
+        except json.JSONDecodeError as exc:
+            raise ShopApiError("罗盘返回了无法识别的内容") from exc
+        return _checked(body)
+
+    return _call_through_server_error(once)
+
+
+def _collect_live_products(cookies: dict[str, str]) -> tuple[list[dict], str]:
+    rows: list[dict] = []
+    page_no = 1
+    while page_no <= _LIVE_PAGE_CAP:
+        try:
+            payload = _live_page(cookies, page_no)
+        except ShopAuthError:
+            raise
+        except ShopApiError as exc:
+            if rows:
+                return rows, exc.message or "罗盘接口失败"
+            raise
+        batch, total = _live_table(payload)
+        rows.extend(batch)
+        if len(batch) < _LIVE_PAGE_SIZE or (total and len(rows) >= total):
+            break
+        page_no += 1
+    return rows, ""
