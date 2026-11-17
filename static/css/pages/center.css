@@ -155,7 +155,15 @@
 .center-metric .sub.up { color: #e5484d; }
 .center-metric .sub.down { color: #30a46c; }
 .center-error { color: #e5484d; font-size: 13px; }
-.center-live-btn { margin-top: 4px; padding: 2px 10px; font-size: 12px; }
+.center-live-btn {
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--primary);
+    cursor: pointer;
+    font: inherit;
+}
+.center-live-btn:hover { text-decoration: underline; }
 .live-dialog { width: min(1180px, 96vw); }
 .live-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .live-table-wrap { max-height: 70vh; overflow: auto; }

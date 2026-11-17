@@ -541,7 +541,7 @@ _LIVE_PRODUCT_INDEXES = ",".join(
         "refund_amt",
         "product_show_ucnt",
         "pay_ucnt",
-        "avg_pay_user_amt",
+        "per_customer_transaction",
         "refund_cnt",
         "pay_cnt",
     )
@@ -605,23 +605,23 @@ def _live_page(cookies: dict[str, str], page_no: int) -> dict:
     def once() -> dict:
         try:
             response = httpx.get(
-                f"{_HOST}/compass_api/shop/common/homepage/product/realtime_product_list",
+                f"{_HOST}/compass_api/shop/common/homepage/product_list",
                 params={
                     "date_type": "1",
                     "begin_date": today,
                     "end_date": today,
                     "activity_id": "",
-                    "is_activity": "false",
-                    "page_no": str(page_no),
-                    "page_size": str(_LIVE_PAGE_SIZE),
+                    "product_rank_type": "shop_all_product",
                     "sort_field": "pay_amt",
                     "is_asc": "false",
-                    "index_selected": _LIVE_PRODUCT_INDEXES,
+                    "page_no": str(page_no),
+                    "page_size": str(_LIVE_PAGE_SIZE),
+                    "index_list": _LIVE_PRODUCT_INDEXES,
                 },
                 cookies=_cookies(cookies),
                 headers={
                     "User-Agent": _UA,
-                    "Referer": f"{_HOST}/shop",
+                    "Referer": f"{_HOST}/shop?dateType=1",
                     "Accept": "application/json, text/plain, */*",
                 },
                 timeout=30,

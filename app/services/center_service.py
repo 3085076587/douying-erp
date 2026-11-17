@@ -1009,31 +1009,41 @@ _LIVE_FIELDS = (
     ("refund_amount", "money", "refund_amt"),
     ("show_user_count", "count", "product_show_ucnt"),
     ("pay_user_count", "count", "pay_ucnt"),
-    ("avg_pay", "money", "avg_pay_user_amt"),
+    ("avg_pay", "money", "per_customer_transaction"),
     ("refund_order_count", "count", "refund_cnt"),
     ("order_count", "count", "pay_cnt"),
 )
 
 
-def _shape_live_row(info: dict) -> dict | None:
+def _live_identity(info: dict) -> tuple[str, str]:
     product = info.get("product_info") if isinstance(info.get("product_info"), dict) else {}
+    name = _text_cell(product.get("product_name_value"))
+    product_id = _text_cell(product.get("product_id_value"))
+    children = product.get("product_info_children")
+    cell = {}
+    if isinstance(children, dict):
+        items = children.get("children")
+        if isinstance(items, list) and items and isinstance(items[0], dict):
+            inner = items[0].get("cell_info")
+            if isinstance(inner, dict):
+                cell = inner
+    if not name and isinstance(cell.get("name"), dict):
+        name = _text_cell(cell["name"].get("name_value"))
+    if not product_id and isinstance(cell.get("id"), dict):
+        product_id = _text_cell(cell["id"].get("id_value"))
+    return name, product_id
+
+
+def _shape_live_row(info: dict) -> dict | None:
+    name, product_id = _live_identity(info)
     row = {
-        "product_id": _text_cell(product.get("product_id_value")),
-        "product_name": _text_cell(product.get("product_name_value")),
+        "product_id": product_id,
+        "product_name": name,
     }
     if not row["product_id"] and not row["product_name"]:
-        named = ""
-        for key in ("product_name", "name", "title"):
-            value = product.get(key) if isinstance(product.get(key), str) else info.get(key)
-            if isinstance(value, str) and value.strip():
-                named = value.strip()
-                break
-        if named:
-            row["product_name"] = named
-        elif not any(_product_value(info, code) for _field, _kind, code in _LIVE_FIELDS):
+        if not any(_product_value(info, code) for _field, _kind, code in _LIVE_FIELDS):
             return None
-        else:
-            row["product_name"] = "商品"
+        row["product_name"] = "商品"
     for field, kind, code in _LIVE_FIELDS:
         values = _product_value(info, code)
         empty = "0" if kind == "count" else "—"

@@ -598,7 +598,7 @@
 
     function liveCell(item) {
         var shopId = String(item.store_pk || "").replace(/\D/g, "");
-        return '<button type="button" class="btn center-live-btn" data-live-shop="' + shopId
+        return '<button type="button" class="center-live-btn" data-live-shop="' + shopId
             + '" data-live-name="' + Dash.escapeHtml(item.name || "") + '">明细</button>';
     }
 
@@ -754,11 +754,11 @@
         paintSortMarks();
         paintHeadSummary(items);
         if (!(shopData.items && shopData.items.length)) {
-            body.innerHTML = '<tr><td colspan="15" class="empty">还没有店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="16" class="empty">还没有店铺</td></tr>';
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="15" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            body.innerHTML = '<tr><td colspan="16" class="empty">没有符合当前账号和店铺的数据</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (item) {
@@ -777,7 +777,7 @@
             var detail = "<td>" + liveCell(item) + "</td>";
             if (item.sync_error) {
                 return "<tr>" + name + scores + login
-                    + '<td colspan="3" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td>"
+                    + '<td colspan="4" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td>"
                     + detail
                     + rates + "</tr>";
             }
@@ -785,8 +785,8 @@
                 + metricCell(item.pay_amount)
                 + metricCell(item.order_count)
                 + metricCell(item.refund_rate)
-                + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_amount || "—") + "</div>"
-                + liveCell(item) + "</td>"
+                + metricCell(item.refund_amount)
+                + detail
                 + rates
                 + "</tr>";
         }).join("");
@@ -1073,9 +1073,9 @@
                 paintShops();
                 return;
             }
-            el("center-shops-tbody").innerHTML = '<tr><td colspan="15" class="empty">正在准备，启动后会先更新一次</td></tr>';
+            el("center-shops-tbody").innerHTML = '<tr><td colspan="16" class="empty">正在准备，启动后会先更新一次</td></tr>';
         }).catch(function () {
-            el("center-shops-tbody").innerHTML = '<tr><td colspan="15" class="empty">正在准备，启动后会先更新一次</td></tr>';
+            el("center-shops-tbody").innerHTML = '<tr><td colspan="16" class="empty">正在准备，启动后会先更新一次</td></tr>';
         });
     }
 
