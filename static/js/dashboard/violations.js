@@ -295,7 +295,7 @@
     function query(silent) {
         var params = filterParams();
         var mySeq = ++seq;
-        if (!silent) body.innerHTML = '<tr><td colspan="7" class="empty">加载中</td></tr>';
+        if (!silent) body.innerHTML = '<tr><td colspan="8" class="empty">加载中</td></tr>';
         Dash.request("/violations?" + params.toString()).then(function (data) {
             if (mySeq !== seq) return; // 已经有更新的查询了，丢掉旧结果
             items = data.items || [];
@@ -303,7 +303,7 @@
             refreshOptions();
         }).catch(function (err) {
             if (mySeq !== seq) return;
-            body.innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="8" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
         el("btn-query-violations").classList.remove("is-dirty");
     }
@@ -364,7 +364,7 @@
             + (revoked ? "，<b class=\"vio-count-num\">" + revoked + "</b> 条违规已撤销" : "")
             + "。";
         if (!rows.length) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
+            body.innerHTML = '<tr><td colspan="8" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
             return;
         }
         body.innerHTML = rows.map(function (row) {
@@ -378,6 +378,9 @@
                 + "<td class=\"vio-desc\" title=\"" + Dash.escapeHtml(row.description_full || row.description || "") + "\">"
                 + Dash.escapeHtml(row.description || "—") + "</td>"
                 + statusCell(row.status)
+                + '<td class="vio-op"><button type="button" class="vio-detail-btn" data-vio-shop="'
+                + Dash.escapeHtml(row.store_pk) + '" data-vio-id="'
+                + Dash.escapeHtml(row.violation_id || "") + '">详情</button></td>'
                 + "</tr>";
         }).join("");
         markSort();
@@ -490,6 +493,96 @@
     document.querySelector("#vio-table th.sortable").addEventListener("click", function () {
         sortDir = -sortDir;
         paint();
+    });
+
+    function detailRow(label, value) {
+        var text = value == null ? "" : String(value);
+        if (!text.trim()) return "";
+        return '<div class="vio-detail-row"><b>' + Dash.escapeHtml(label) + "</b><div>" + text + "</div></div>";
+    }
+
+    function objectHtml(data) {
+        if (!data.object_name && !data.object_id) return "";
+        var img = "";
+        if ((data.image || "").indexOf("https://") === 0) {
+            img = '<img alt="" src="' + Dash.escapeHtml(data.image) + '">';
+        }
+        var lines = "<div>" + Dash.escapeHtml(data.object_name || "—") + "</div>";
+        if (data.object_id) {
+            lines += '<div class="vio-detail-id">' + Dash.escapeHtml((data.object_id_label || "编号") + " " + data.object_id) + "</div>";
+        }
+        if (data.object_type) {
+            lines += '<div class="vio-detail-id">' + Dash.escapeHtml(data.object_type) + "</div>";
+        }
+        return '<div class="vio-detail-object">' + img + "<div>" + lines + "</div></div>";
+    }
+
+    function rulesHtml(rules) {
+        if (!rules || !rules.length) return "";
+        return rules.map(function (rule) {
+            var name = Dash.escapeHtml(rule.name || "依据");
+            var link = name;
+            var url = rule.url || "";
+            if (url.indexOf("https://") === 0 && url.indexOf("jinritemai.com") >= 0) {
+                link = '<a href="' + Dash.escapeHtml(url) + '" target="_blank" rel="noreferrer">' + name + "</a>";
+            }
+            var explain = rule.explain
+                ? '<div class="vio-detail-explain">' + Dash.escapeHtml(rule.explain) + "</div>"
+                : "";
+            return "<div>根据 " + link + explain + "</div>";
+        }).join("");
+    }
+
+    function renderDetail(data) {
+        var reason = Dash.escapeHtml(data.reason || "");
+        if (data.level) reason += (reason ? " " : "") + '<span class="vio-tag vio-tag-warn">' + Dash.escapeHtml("情节" + data.level) + "</span>";
+        var points = (data.points || []).map(function (item) { return Dash.escapeHtml(item); }).join("、");
+        var penaltyTime = data.penalized_at || data.violated_at || "";
+        var head = detailRow("违规编号", Dash.escapeHtml(data.violation_id || ""))
+            + detailRow("处罚时间", Dash.escapeHtml(penaltyTime))
+            + detailRow("处罚对象", objectHtml(data))
+            + detailRow("处罚方式", Dash.escapeHtml(data.penalty || ""))
+            + detailRow("状态", Dash.escapeHtml(data.status || ""));
+        var body = detailRow("违规时间", Dash.escapeHtml(data.violated_at || ""))
+            + detailRow("违规类型", Dash.escapeHtml(data.violation_type || ""))
+            + detailRow("违规原因", reason)
+            + detailRow("处罚依据", rulesHtml(data.rules))
+            + detailRow("违规点", points)
+            + (data.description
+                ? detailRow("详细违规点", '<div class="vio-detail-text">' + Dash.escapeHtml(data.description) + "</div>")
+                : "");
+        return '<section class="vio-detail-block"><h3>处罚信息</h3>' + head
+            + '</section><section class="vio-detail-block"><h3>违规详情</h3>' + body + "</section>";
+    }
+
+    function closeDetail() {
+        el("vio-detail-mask").classList.add("hidden");
+    }
+
+    function openDetail(storePk, violationId) {
+        if (!storePk || !violationId) return;
+        el("vio-detail-title").textContent = "处罚详情";
+        el("vio-detail-note").textContent = "正在获取…";
+        el("vio-detail-body").innerHTML = "";
+        el("vio-detail-mask").classList.remove("hidden");
+        var path = "/violations/detail?store_pk=" + encodeURIComponent(storePk)
+            + "&violation_id=" + encodeURIComponent(violationId);
+        Dash.request(path).then(function (data) {
+            el("vio-detail-note").textContent = data.shop_name || "";
+            el("vio-detail-body").innerHTML = renderDetail(data || {});
+        }).catch(function (err) {
+            el("vio-detail-note").textContent = (err && err.message) || "没有获取到处罚详情";
+        });
+    }
+
+    body.addEventListener("click", function (event) {
+        var button = event.target.closest ? event.target.closest(".vio-detail-btn") : null;
+        if (!button) return;
+        openDetail(button.getAttribute("data-vio-shop"), button.getAttribute("data-vio-id"));
+    });
+    el("vio-detail-close").addEventListener("click", closeDetail);
+    el("vio-detail-mask").addEventListener("click", function (event) {
+        if (event.target === el("vio-detail-mask")) closeDetail();
     });
 
     window.Vio = {

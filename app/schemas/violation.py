@@ -34,6 +34,35 @@ class ViolationList(BaseModel):
     total: int = 0
 
 
+class ViolationRule(BaseModel):
+    name: str = ""
+    url: str = ""
+    explain: str = ""
+
+
+class ViolationDetail(BaseModel):
+    """点开一条违规后向抖店现拉的处罚详情。"""
+
+    store_pk: int
+    shop_name: str = ""
+    violation_id: str = ""
+    violated_at: str = ""
+    penalized_at: str = ""
+    violation_type: str = ""
+    penalty: str = ""
+    status: str = ""
+    reason: str = ""
+    level: str = ""
+    description: str = ""
+    points: list[str] = []
+    rules: list[ViolationRule] = []
+    object_type: str = ""
+    object_name: str = ""
+    object_id: str = ""
+    object_id_label: str = ""
+    image: str = ""
+
+
 class ViolationOptionItem(BaseModel):
     """下拉里的一项：值 + 当前筛选条件下的条数（0 表示这个条件下没有记录）。"""
 

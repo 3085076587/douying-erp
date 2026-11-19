@@ -30,7 +30,8 @@ from app.services.dy_client import (
     cookies_for,
     session_alive,
 )
-from app.services.dy_violation import fetch_violation_list
+from app.services.dy_violation import fetch_violation_detail, fetch_violation_list
+from app.services.store_service import keep_shop_jar, revive_shop
 
 _LOG = logging.getLogger("uvicorn.error")
 
@@ -451,6 +452,45 @@ def list_violations(
             }
         )
     return rows
+
+
+def read_violation_detail(db: Session, store_pk: int, violation_id: str) -> dict:
+    """点开一条违规时向抖店要处罚详情。不写 Redis，失败也不把店铺标成离线。"""
+    shop = db.get(Shop, store_pk)
+    if shop is None:
+        raise ShopApiError("没有这家店")
+    ticket_id = (violation_id or "").strip()
+    record = db.scalar(
+        select(DyViolation).where(DyViolation.store_pk == shop.id, DyViolation.violation_id == ticket_id)
+    )
+    if record is None:
+        raise ShopApiError("没有这条违规记录")
+    cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
+    if not cookies or shop.shop_cookie != 1:
+        raise ShopApiError("还没有这家店的登录凭证")
+    try:
+        try:
+            detail = fetch_violation_detail(cookies, ticket_id)
+        except ShopAuthError:
+            if not revive_shop(db, shop):
+                raise
+            cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
+            detail = fetch_violation_detail(cookies, ticket_id)
+    finally:
+        keep_shop_jar(shop, cookies)
+        db.commit()
+    if not detail.get("penalty"):
+        detail["penalty"] = record.penalty or ""
+    if not detail.get("status"):
+        detail["status"] = record.status or ""
+    if not detail.get("violated_at") and record.violated_at:
+        detail["violated_at"] = record.violated_at.strftime("%Y-%m-%d %H:%M:%S")
+    if not detail.get("description"):
+        detail["description"] = record.description or ""
+    detail["store_pk"] = shop.id
+    detail["shop_name"] = shop.name or ""
+    detail["violation_type"] = clean_violation_type(record.violation_type)
+    return detail
 
 
 def options(

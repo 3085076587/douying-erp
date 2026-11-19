@@ -1,10 +1,11 @@
 """违规与预警：查询、筛选和拉取。"""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_section
 from app.db.session import get_db
 from app.schemas.violation import (
+    ViolationDetail,
     ViolationList,
     ViolationOptions,
     ViolationProgress,
@@ -13,6 +14,7 @@ from app.schemas.violation import (
     ViolationShopList,
     ViolationShopRow,
 )
+from app.services.dy_client import ShopApiError, ShopAuthError
 from app.services import violation_service
 
 router = APIRouter(prefix="/violations", tags=["违规与预警"])
@@ -100,6 +102,22 @@ def _progress_payload() -> ViolationProgress:
     data["interval_minutes"] = violation_service.schedule_minutes()
     data["next_update"] = violation_service.next_update_text(data["last_update"])
     return ViolationProgress.model_validate(data)
+
+
+@router.get("/detail", response_model=ViolationDetail, summary="一条违规的处罚详情")
+def violation_detail(
+    db: Session = Depends(get_db),
+    _user=Depends(require_section("violation")),
+    store_pk: int = Query(..., description="店铺编号"),
+    violation_id: str = Query(..., min_length=1, max_length=64),
+) -> ViolationDetail:
+    """点详情时向抖店现拉这一单，不写缓存。"""
+    try:
+        data = violation_service.read_violation_detail(db, store_pk, violation_id)
+    except (ShopApiError, ShopAuthError) as exc:
+        message = getattr(exc, "message", None) or str(exc) or "没有获取到处罚详情"
+        raise HTTPException(status_code=400, detail=message) from exc
+    return ViolationDetail.model_validate(data)
 
 
 @router.get("/progress", response_model=ViolationProgress, summary="拉取进度")

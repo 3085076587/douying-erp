@@ -1,7 +1,9 @@
 """违规与预警调用的抖店接口。"""
 from __future__ import annotations
 
+import re
 import time
+from datetime import datetime
 from typing import Any
 
 from app.services.dy_client import ShopApiError, ShopAuthError, request_shop
@@ -14,6 +16,7 @@ from app.services.dy_client import ShopApiError, ShopAuthError, request_shop
 # ---------------------------------------------------------------------------
 
 PENALTY_LIST_PATH = "/governance/shop/penalty/get_penalty_list"
+PENALTY_DETAIL_PATH = "/governance/shop/penalty/v3/get_ticket_detail"
 PENALTY_ENUM_PATH = "/governance/shop/penalty/enum_config"
 _VIOLATION_REFERER = "https://fxg.jinritemai.com/ffa/govern-guarantee/regulation/violation"
 
@@ -221,3 +224,195 @@ def fetch_appeal_ticket_ids(cookies: dict[str, str]) -> list[str]:
         if not tickets or len(tickets) < 50 or len(ids) >= total:
             break
     return ids
+
+
+_OBJECT_LABELS = {
+    1: ("订单", "订单ID"),
+    2: ("商品", "商品ID"),
+    3: ("店铺", "店铺ID"),
+    4: ("达人", "达人ID"),
+    5: ("视频", "视频ID"),
+    6: ("直播间", "直播ID"),
+    25: ("渠道品", "渠道ID"),
+    32: ("售后单", "售后单ID"),
+}
+_LEVELS = {1: "轻微", 2: "一般", 3: "严重", 4: "特别严重"}
+
+
+def _plain(value: Any, *, keep_lines: bool = False) -> str:
+    text = str(value or "")
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</p>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    if keep_lines:
+        lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+        return "\n".join(line for line in lines if line)[:2000]
+    return re.sub(r"\s+", " ", text).strip()[:2000]
+
+
+def _unix_text(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return str(value)[:32]
+    if number > 10**12:
+        number //= 1000
+    if number < 10**9:
+        return ""
+    return datetime.fromtimestamp(number).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _plan_names(data: dict, info: dict) -> list[str]:
+    names: list[str] = []
+    pools = [data.get("execute_plans"), info.get("execute_plans")]
+    for plans in pools:
+        if not isinstance(plans, list):
+            continue
+        for plan in plans:
+            if not isinstance(plan, dict):
+                continue
+            title = plan.get("title") if isinstance(plan.get("title"), dict) else {}
+            name = str(title.get("name") or plan.get("biz_show_desc") or plan.get("exec_type_name") or "").strip()
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def _object(info: dict) -> dict:
+    obj = info.get("object") if isinstance(info.get("object"), dict) else {}
+    if not obj:
+        listed = info.get("object_list")
+        if isinstance(listed, list) and listed and isinstance(listed[0], dict):
+            obj = listed[0]
+    try:
+        kind = int(obj.get("object_type") or 0)
+    except (TypeError, ValueError):
+        kind = 0
+    label, id_label = _OBJECT_LABELS.get(kind, ("", "对象ID"))
+    image = ""
+    imgs = obj.get("object_imgs") if isinstance(obj.get("object_imgs"), list) else []
+    for item in imgs:
+        url = str(item or "")
+        if url.startswith("https://") and " " not in url:
+            image = url
+            break
+    object_id = str(obj.get("object_id") or "")[:64]
+    return {
+        "object_type": label,
+        "object_name": str(obj.get("object_name") or "")[:200],
+        "object_id": object_id,
+        "object_id_label": id_label if object_id else "",
+        "image": image[:500],
+    }
+
+
+def _rules(data: dict, info: dict) -> list[dict]:
+    raw = data.get("rule_instruction_list")
+    if not isinstance(raw, list):
+        raw = info.get("rule_instruction_list") if isinstance(info.get("rule_instruction_list"), list) else []
+    rules: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("rule_instruction_url") or "")
+        host_ok = url.startswith("https://") and "jinritemai.com" in url and " " not in url
+        name = str(item.get("rule_instruction_name") or "").strip()
+        explain = _plain(item.get("llm_explain"))
+        if not name and not explain:
+            continue
+        rules.append({"name": name[:200], "url": url[:500] if host_ok else "", "explain": explain[:1000]})
+        if len(rules) >= 3:
+            break
+    return rules
+
+
+def _points(info: dict) -> list[str]:
+    evidence = info.get("violation_evidence") if isinstance(info.get("violation_evidence"), dict) else {}
+    raw = evidence.get("shop_violation_point_cn_list")
+    if not isinstance(raw, list):
+        return []
+    points: list[str] = []
+    for item in raw:
+        if isinstance(item, dict):
+            text = _plain(item.get("name") or item.get("text") or "")
+        else:
+            text = _plain(item)
+        if text and text not in points:
+            points.append(text[:200])
+        if len(points) >= 20:
+            break
+    return points
+
+
+def _status_text(data: dict, info: dict) -> str:
+    for source in (info, data):
+        detail = source.get("status_text_detail")
+        if isinstance(detail, dict):
+            text = str(detail.get("main_status_text") or "").strip()
+            if text:
+                return text[:20]
+        text = source.get("status_text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()[:20]
+    return ""
+
+
+def _shape_detail(data: dict, ticket_id: str) -> dict:
+    """处罚详情页用的字段。抖店详情在 info 里，处置计划有的挂在外层。"""
+    if not isinstance(data.get("info"), dict) and isinstance(data.get("ticket"), dict):
+        data = data["ticket"]
+    info = data.get("info") if isinstance(data.get("info"), dict) else {}
+    reason = str(
+        info.get("show_violation_reason") or data.get("violation_reason") or data.get("show_violation_reason") or ""
+    ).strip()
+    if reason in {"--", "-"}:
+        reason = ""
+    try:
+        level = int(info.get("circumstances_level") or data.get("circumstances_level") or 0)
+    except (TypeError, ValueError):
+        level = 0
+    shaped = {
+        "violation_id": str(data.get("ticket_id") or ticket_id)[:64],
+        "violated_at": _unix_text(info.get("violation_time") or data.get("violation_time")),
+        "penalized_at": _unix_text(data.get("penalty_time") or info.get("penalty_time") or data.get("execute_time")),
+        "reason": _plain(reason)[:500],
+        "level": _LEVELS.get(level, ""),
+        "penalty": "、".join(_plan_names(data, info))[:200],
+        "description": _plain(info.get("violation_detail") or data.get("violation_detail"), keep_lines=True),
+        "points": _points(info),
+        "rules": _rules(data, info),
+        "status": _status_text(data, info),
+    }
+    shaped.update(_object(info or data))
+    return shaped
+
+
+def fetch_violation_detail(cookies: dict[str, str], ticket_id: str) -> dict:
+    """点开一条违规时现拉处罚详情。先按处罚单查，没有再按预警单查。"""
+    last = ShopApiError("没有查到这条处罚详情")
+    for ticket_type in ("penalty", "risk"):
+        body = {
+            "ticket_id": ticket_id,
+            "standard_ticket_type": ticket_type,
+            "request_env": {"request_source": 1},
+            "need_unfreeze_progress": False,
+        }
+        try:
+            data = request_shop(cookies, "POST", PENALTY_DETAIL_PATH, json_body=body)
+        except ShopAuthError:
+            raise
+        except ShopApiError as exc:
+            last = exc
+            continue
+        if not data:
+            continue
+        got = str(data.get("ticket_id") or "")
+        if got and got != str(ticket_id):
+            nested = data.get("ticket") if isinstance(data.get("ticket"), dict) else {}
+            got = str(nested.get("ticket_id") or got)
+        if got and got != str(ticket_id):
+            raise ShopApiError("处罚详情和这条违规对不上")
+        return _shape_detail(data, ticket_id)
+    raise last
