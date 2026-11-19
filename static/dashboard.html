@@ -7,7 +7,8 @@
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/dashboard.css?v=22">
-    <link rel="stylesheet" href="/static/css/pages/violations.css?v=2">
+    <link rel="stylesheet" href="/static/css/pages/violations.css?v=4">
+    <link rel="stylesheet" href="/static/css/pages/compensates.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=13">
 </head>
 <body>
@@ -36,6 +37,10 @@
             <a class="nav-item nav-sub hidden" data-view="invoices" data-section="fund" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
                 <span>发票管理</span>
+            </a>
+            <a class="nav-item nav-sub hidden" data-view="compensates" data-section="fund" href="javascript:void(0)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v12H4z"/><path d="M4 10h16"/><path d="M8 15h4"/></svg>
+                <span>账单赔付</span>
             </a>
             <a class="nav-item hidden" data-view="members" id="nav-members" href="javascript:void(0)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -182,6 +187,38 @@
                     </div>
                 </div>
             </section>
+            <section class="view" id="view-compensates">
+                <div class="panel">
+                    <div class="vio-toolbar">
+                        <select id="comp-shop"><option value="">全部店铺</option></select>
+                        <select id="comp-range">
+                            <option value="today">今天</option>
+                            <option value="7">近7天</option>
+                            <option value="30" selected>近30天</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                        <input id="comp-start" type="date">
+                        <span class="vio-date-sep">至</span>
+                        <input id="comp-end" type="date">
+                        <button class="btn btn-primary" id="btn-query-compensates" type="button">查询</button>
+                    </div>
+                    <p class="form-hint" id="comp-sum">每天 00:01 把昨天的赔付入库，这里只读数据库。</p>
+                    <div class="table-wrap">
+                        <table class="data-table" id="comp-table">
+                            <thead>
+                            <tr>
+                                <th>店铺</th>
+                                <th>赔付金额</th>
+                                <th>详情</th>
+                            </tr>
+                            </thead>
+                            <tbody id="comp-tbody">
+                            <tr><td colspan="3" class="empty">打开后加载</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
             <section class="view" id="view-violations">
                 <div class="panel vio-panel">
                     <div class="vio-toolbar">
@@ -207,6 +244,11 @@
                         </select>
                         <select id="vio-penalty"><option value="">全部处罚方式</option></select>
                         <select id="vio-status"><option value="">全部状态</option></select>
+                        <select id="vio-due">
+                            <option value="">处罚到期不限</option>
+                            <option value="active">处罚未到期</option>
+                            <option value="passed">处罚已到期</option>
+                        </select>
                         <select id="vio-range">
                             <option value="today">今天</option>
                             <option value="7">近7天</option>
@@ -231,13 +273,14 @@
                                 <th class="vio-col-id">违规编号</th>
                                 <th class="vio-col-type">违规类型</th>
                                 <th class="vio-col-penalty">处罚方式</th>
+                                <th class="vio-col-due">处罚到期时间</th>
                                 <th class="vio-col-desc">违规说明</th>
                                 <th class="vio-col-status">状态</th>
                                 <th class="vio-col-op">详情</th>
                             </tr>
                             </thead>
                             <tbody id="vio-tbody">
-                            <tr><td colspan="8" class="empty">打开后加载</td></tr>
+                            <tr><td colspan="9" class="empty">打开后加载</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -456,6 +499,38 @@
         <p id="withdraw-tip" class="form-hint"></p>
     </form>
 </div>
+<div id="comp-detail-mask" class="mask hidden">
+    <div class="dialog comp-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="comp-detail-title">
+        <div class="comp-detail-head">
+            <h2 id="comp-detail-title">赔付详情</h2>
+            <button class="btn" id="comp-detail-close" type="button">关闭</button>
+        </div>
+        <p id="comp-detail-note" class="form-hint"></p>
+        <div class="table-wrap comp-detail-wrap">
+            <table class="data-table">
+                <thead>
+                <tr>
+                    <th>动账时间</th>
+                    <th>赔付单号</th>
+                    <th>赔付场景</th>
+                    <th>赔付对象</th>
+                    <th>动账方向</th>
+                    <th>动账金额</th>
+                    <th>出资方</th>
+                    <th>动账账户</th>
+                    <th>赔付原因</th>
+                    <th>订单编号</th>
+                    <th>子订单编号</th>
+                    <th>售后单号</th>
+                </tr>
+                </thead>
+                <tbody id="comp-detail-tbody">
+                <tr><td colspan="12" class="empty">正在读取…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
 <div id="vio-detail-mask" class="mask hidden">
     <div class="dialog vio-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="vio-detail-title">
         <div class="vio-detail-head">
@@ -530,11 +605,12 @@
 </div>
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
-<script src="/static/js/dashboard/core.js?v=13"></script>
+<script src="/static/js/dashboard/core.js?v=14"></script>
 <script src="/static/js/dashboard/stores.js?v=11"></script>
 <script src="/static/js/dashboard/accounts.js?v=12"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
-<script src="/static/js/dashboard/violations.js?v=17"></script>
+<script src="/static/js/dashboard/compensates.js?v=1"></script>
+<script src="/static/js/dashboard/violations.js?v=19"></script>
 <script src="/static/js/dashboard/center.js?v=30"></script>
 <script src="/static/js/dashboard/members.js?v=1"></script>
 </body>

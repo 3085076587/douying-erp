@@ -264,6 +264,62 @@ def _unix_text(value: Any) -> str:
     return datetime.fromtimestamp(number).strftime("%Y-%m-%d %H:%M:%S")
 
 
+_TIME_TAIL = re.compile(
+    r"^(处置生效时间：.+?\d{1,2}:\d{2}(?:-\d{4}.+?\d{1,2}:\d{2})?)\s*[,，]\s*(.+)$"
+)
+
+
+def _plan_lines(description: Any) -> list[str]:
+    """处置说明。生效时间单独一行，后面的补充说明再另起一行。"""
+    text = _plain(description, keep_lines=True)
+    lines: list[str] = []
+    for line in text.splitlines():
+        matched = _TIME_TAIL.match(line)
+        if matched:
+            lines.append(matched.group(1).strip()[:200])
+            extra = matched.group(2).strip()
+            if extra:
+                lines.append(extra[:500])
+        elif line:
+            lines.append(line[:500])
+        if len(lines) >= 8:
+            break
+    return lines
+
+
+def _plans(data: dict, info: dict) -> list[dict]:
+    """处置结果与解除指引。每条处置计划一张卡片。"""
+    raw = data.get("execute_plans")
+    if not isinstance(raw, list):
+        raw = info.get("execute_plans") if isinstance(info.get("execute_plans"), list) else []
+    plans: list[dict] = []
+    for plan in raw:
+        if not isinstance(plan, dict):
+            continue
+        title = plan.get("title") if isinstance(plan.get("title"), dict) else {}
+        name = str(title.get("name") or plan.get("biz_show_desc") or "").strip()
+        tags = title.get("tags") if isinstance(title.get("tags"), list) else []
+        tag = tags[0] if tags and isinstance(tags[0], dict) else {}
+        status = str(tag.get("label") or "").strip()
+        extra = str(tag.get("subLabel") or tag.get("sub_label") or "").strip()
+        tip = str(title.get("tip") or "").strip()
+        lines = _plan_lines(plan.get("description"))
+        if not name and not status and not lines:
+            continue
+        plans.append(
+            {
+                "name": name[:200],
+                "status": status[:40],
+                "status_extra": extra[:40],
+                "tip": tip[:300],
+                "lines": lines,
+            }
+        )
+        if len(plans) >= 12:
+            break
+    return plans
+
+
 def _plan_names(data: dict, info: dict) -> list[str]:
     names: list[str] = []
     pools = [data.get("execute_plans"), info.get("execute_plans")]
@@ -383,6 +439,7 @@ def _shape_detail(data: dict, ticket_id: str) -> dict:
         "description": _plain(info.get("violation_detail") or data.get("violation_detail"), keep_lines=True),
         "points": _points(info),
         "rules": _rules(data, info),
+        "plans": _plans(data, info),
         "status": _status_text(data, info),
     }
     shaped.update(_object(info or data))

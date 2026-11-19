@@ -20,6 +20,7 @@ class ViolationRow(BaseModel):
     shop_name: str = ""
     violation_id: str = ""
     violated_at: str = ""
+    due_date: str = ""  # 处罚到期日（违规时间 + 处罚天数），处罚没有天数时为空
     violation_type: str = ""
     violation_type_raw: str = ""  # 抖店原始类型文本（带处置后缀），鼠标悬浮时显示
     penalty: str = ""
@@ -40,6 +41,16 @@ class ViolationRule(BaseModel):
     explain: str = ""
 
 
+class ViolationPlan(BaseModel):
+    """一条处置结果：标题、状态、生效时间和补充说明。"""
+
+    name: str = ""
+    status: str = ""
+    status_extra: str = ""
+    tip: str = ""
+    lines: list[str] = []
+
+
 class ViolationDetail(BaseModel):
     """点开一条违规后向抖店现拉的处罚详情。"""
 
@@ -56,6 +67,7 @@ class ViolationDetail(BaseModel):
     description: str = ""
     points: list[str] = []
     rules: list[ViolationRule] = []
+    plans: list[ViolationPlan] = []
     object_type: str = ""
     object_name: str = ""
     object_id: str = ""

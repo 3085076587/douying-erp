@@ -1,0 +1,15 @@
+.comp-detail-btn {
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--primary);
+    cursor: pointer;
+    font: inherit;
+}
+.comp-detail-btn:hover { text-decoration: underline; }
+.comp-out { color: #dc2626; }
+.comp-detail-dialog { width: min(1180px, 96vw); }
+.comp-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.comp-detail-wrap { max-height: 70vh; overflow: auto; }
+#comp-table td:nth-child(2),
+.comp-detail-wrap td:nth-child(6) { white-space: nowrap; }

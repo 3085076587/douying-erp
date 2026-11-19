@@ -245,7 +245,7 @@
         focusPk = "";
         pinnedIds = focusIds;
         focusIds = "";
-        ["vio-type", "vio-penalty", "vio-status"].forEach(function (id) {
+        ["vio-type", "vio-penalty", "vio-status", "vio-due"].forEach(function (id) {
             if (el(id)) el(id).value = "";
         });
         boxes.forEach(function (box) { box.checked = box.value === target; });
@@ -294,8 +294,9 @@
 
     function query(silent) {
         var params = filterParams();
+        params.set("due", el("vio-due").value || "");
         var mySeq = ++seq;
-        if (!silent) body.innerHTML = '<tr><td colspan="8" class="empty">加载中</td></tr>';
+        if (!silent) body.innerHTML = '<tr><td colspan="9" class="empty"><span class="vio-spinner"></span>加载中…</td></tr>';
         Dash.request("/violations?" + params.toString()).then(function (data) {
             if (mySeq !== seq) return; // 已经有更新的查询了，丢掉旧结果
             items = data.items || [];
@@ -303,7 +304,7 @@
             refreshOptions();
         }).catch(function (err) {
             if (mySeq !== seq) return;
-            body.innerHTML = '<tr><td colspan="8" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="9" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
         el("btn-query-violations").classList.remove("is-dirty");
     }
@@ -340,6 +341,26 @@
         }).join("") + "</td>";
     }
 
+    function dueState(row) {
+        var due = row.due_date || "";
+        if (!due) return "";
+        var parts = due.split("-");
+        if (parts.length !== 3) return "";
+        var at = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (isNaN(at.getTime())) return "";
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return at.getTime() < today.getTime() ? "passed" : "active";
+    }
+
+    function dueCell(row) {
+        var due = row.due_date || "";
+        if (!due) return '<td class="vio-due"><span class="vio-muted">—</span></td>';
+        var state = dueState(row);
+        var tone = state === "passed" ? " vio-due-passed" : state === "active" ? " vio-due-active" : "";
+        return '<td class="vio-due' + tone + '">' + Dash.escapeHtml(due) + "</td>";
+    }
+
     function statusCell(status) {
         var text = (status || "").trim();
         if (!text) return '<td class="vio-status"><span class="vio-muted">—</span></td>';
@@ -364,7 +385,7 @@
             + (revoked ? "，<b class=\"vio-count-num\">" + revoked + "</b> 条违规已撤销" : "")
             + "。";
         if (!rows.length) {
-            body.innerHTML = '<tr><td colspan="8" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
+            body.innerHTML = '<tr><td colspan="9" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
             return;
         }
         body.innerHTML = rows.map(function (row) {
@@ -375,6 +396,7 @@
                 + "<td class=\"vio-type\" title=\"" + Dash.escapeHtml(row.violation_type_raw || row.violation_type || "") + "\">"
                 + Dash.escapeHtml(row.violation_type || "—") + "</td>"
                 + penaltyCell(row)
+                + dueCell(row)
                 + "<td class=\"vio-desc\" title=\"" + Dash.escapeHtml(row.description_full || row.description || "") + "\">"
                 + Dash.escapeHtml(row.description || "—") + "</td>"
                 + statusCell(row.status)
@@ -471,6 +493,10 @@
     });
     el("btn-refresh-violations").addEventListener("click", refresh);
     // 四个下拉：选完立刻按新条件刷新表格和后面的选项
+    el("vio-due").addEventListener("change", function () {
+        clearPinned();
+        query(false);
+    });
     ["vio-account", "vio-type", "vio-penalty", "vio-status"].forEach(function (id) {
         el(id).addEventListener("change", function () {
             clearPinned();
@@ -517,42 +543,36 @@
         return '<div class="vio-detail-object">' + img + "<div>" + lines + "</div></div>";
     }
 
-    function rulesHtml(rules) {
-        if (!rules || !rules.length) return "";
-        return rules.map(function (rule) {
-            var name = Dash.escapeHtml(rule.name || "依据");
-            var link = name;
-            var url = rule.url || "";
-            if (url.indexOf("https://") === 0 && url.indexOf("jinritemai.com") >= 0) {
-                link = '<a href="' + Dash.escapeHtml(url) + '" target="_blank" rel="noreferrer">' + name + "</a>";
+    function plansHtml(plans) {
+        if (!plans || !plans.length) {
+            return '<div class="vio-plan-empty">本次为预警警告，不做具体处置</div>';
+        }
+        return plans.map(function (plan) {
+            var status = Dash.escapeHtml(plan.status || "");
+            if (plan.status_extra) {
+                status += (status ? " | " : "") + Dash.escapeHtml(plan.status_extra);
             }
-            var explain = rule.explain
-                ? '<div class="vio-detail-explain">' + Dash.escapeHtml(rule.explain) + "</div>"
-                : "";
-            return "<div>根据 " + link + explain + "</div>";
+            var name = Dash.escapeHtml(plan.name || "处置");
+            var tip = plan.tip ? ' title="' + Dash.escapeHtml(plan.tip) + '"' : "";
+            var lines = (plan.lines || []).map(function (line) {
+                return '<div class="vio-plan-line">' + Dash.escapeHtml(line) + "</div>";
+            }).join("");
+            return '<article class="vio-plan"><div class="vio-plan-name"' + tip + ">" + name + "</div>"
+                + (status ? '<div class="vio-plan-status">' + status + "</div>" : "")
+                + lines + "</article>";
         }).join("");
     }
 
     function renderDetail(data) {
-        var reason = Dash.escapeHtml(data.reason || "");
-        if (data.level) reason += (reason ? " " : "") + '<span class="vio-tag vio-tag-warn">' + Dash.escapeHtml("情节" + data.level) + "</span>";
-        var points = (data.points || []).map(function (item) { return Dash.escapeHtml(item); }).join("、");
         var penaltyTime = data.penalized_at || data.violated_at || "";
         var head = detailRow("违规编号", Dash.escapeHtml(data.violation_id || ""))
             + detailRow("处罚时间", Dash.escapeHtml(penaltyTime))
             + detailRow("处罚对象", objectHtml(data))
             + detailRow("处罚方式", Dash.escapeHtml(data.penalty || ""))
             + detailRow("状态", Dash.escapeHtml(data.status || ""));
-        var body = detailRow("违规时间", Dash.escapeHtml(data.violated_at || ""))
-            + detailRow("违规类型", Dash.escapeHtml(data.violation_type || ""))
-            + detailRow("违规原因", reason)
-            + detailRow("处罚依据", rulesHtml(data.rules))
-            + detailRow("违规点", points)
-            + (data.description
-                ? detailRow("详细违规点", '<div class="vio-detail-text">' + Dash.escapeHtml(data.description) + "</div>")
-                : "");
         return '<section class="vio-detail-block"><h3>处罚信息</h3>' + head
-            + '</section><section class="vio-detail-block"><h3>违规详情</h3>' + body + "</section>";
+            + '</section><section class="vio-detail-block"><h3>处置结果与解除指引</h3>'
+            + plansHtml(data.plans) + "</section>";
     }
 
     function closeDetail() {

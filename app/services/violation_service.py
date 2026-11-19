@@ -175,6 +175,28 @@ def penalty_category(text: str) -> str:
     return "、".join(penalty_categories(text))
 
 
+# 处罚到期日：处罚原文里的「N天 / N个自然日」取最大天数，再加上违规日期。
+# 多种处罚同时存在时，用最晚的那个到期日。没有天数的（如警告、商品封禁）为空。
+_DUE_DAYS_RE = re.compile(r"(\d+)\s*(?:个\s*自\s*然\s*日|天)")
+
+
+def _penalty_max_days(text: str) -> int:
+    days = 0
+    for match in _DUE_DAYS_RE.finditer(text or ""):
+        days = max(days, int(match.group(1)))
+    return days
+
+
+def due_date_text(penalty_text: str, violated_at: datetime | None) -> str:
+    """处罚到期日 YYYY-MM-DD。没有天数或没有违规时间时返回空。"""
+    if violated_at is None:
+        return ""
+    days = _penalty_max_days(penalty_text)
+    if not days:
+        return ""
+    return (violated_at.date() + timedelta(days=days)).isoformat()
+
+
 # ---------------------------------------------------------------------------
 # 违规类型：抖店给的原文常把处置动作也拼在后面，例如
 #   「劣质商品的同款/同类商品（商品封禁）」
@@ -407,6 +429,7 @@ def list_violations(
     violation_type: str = "",
     penalty: str = "",
     status: str = "",
+    due: str = "",
     start_date: str = "",
     end_date: str = "",
     violation_ids: list[str] | None = None,
@@ -415,11 +438,13 @@ def list_violations(
 
     店铺支持多选（store_pks），处罚方式按归类后的类型匹配，
     违规类型按「清洗后的原因」匹配（一个原因可能对应好几种原始写法）。
+    due 为 active 时只留未到期，passed 时只留已到期；没有天数的记录两边都不进。
     """
     type_values: list[str] | None = None
     if violation_type:
         type_values = type_value_map(db).get(violation_type) or [violation_type]
 
+    today = date.today()
     rows = []
     for item, shop_name in _query_violations(
         db,
@@ -435,6 +460,18 @@ def list_violations(
         categories = penalty_categories(item.penalty)
         if penalty and penalty not in categories:
             continue
+        due_text = due_date_text(item.penalty or "", item.violated_at)
+        if due in {"active", "passed"}:
+            if not due_text:
+                continue
+            try:
+                passed = date.fromisoformat(due_text) < today
+            except ValueError:
+                continue
+            if due == "passed" and not passed:
+                continue
+            if due == "active" and passed:
+                continue
         rows.append(
             {
                 "store_pk": item.store_pk,
@@ -442,6 +479,7 @@ def list_violations(
                 "shop_name": shop_name or "",
                 "violation_id": item.violation_id,
                 "violated_at": item.violated_at.strftime("%Y-%m-%d %H:%M:%S") if item.violated_at else "",
+                "due_date": due_text,
                 "violation_type": clean_violation_type(item.violation_type),
                 "violation_type_raw": item.violation_type or "",
                 "penalty": item.penalty,

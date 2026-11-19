@@ -29,7 +29,7 @@ from app.services.center_service import (
 )
 from app.services.home_service import cache_fresh as home_cache_fresh
 from app.services.home_service import next_home_wait, refresh_home
-from app.services import invoice_service
+from app.services import compensate_service, invoice_service
 from app.services.account_service import live_cache_fresh, refresh_saved_accounts
 from app.services.store_service import (
     ensure_credential_at_column,
@@ -215,6 +215,44 @@ def _run_daily(pull_home: bool = True, pull_overview: bool = True) -> str:
     return f"店铺首页 {home_failed} 家没拉到，数据总览 {overview_failed} 家次没拉到"
 
 
+def _seconds_until_clock(hour: int, minute: int) -> float:
+    now = datetime.now()
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return max(5.0, (target - now).total_seconds())
+
+
+async def _compensate_loop() -> None:
+    """账单赔付：第一次把全部历史补进库，之后每天 00:01 拉昨天。页面默认仍看近 30 天。"""
+    logger.info("账单赔付已启动，第一次补全部历史，之后每天 00:01 拉昨天")
+    write_start("账单赔付，第一次补全部历史，之后每天 00:01 拉昨天")
+    await asyncio.sleep(20)
+    try:
+        if compensate_service.needs_backfill():
+            message = await asyncio.to_thread(compensate_service.pull_all)
+            write_success(f"账单赔付 {message}")
+            logger.info("账单赔付补数 %s", message)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("账单赔付补数失败")
+        write_fail("账单赔付")
+    while True:
+        try:
+            await asyncio.sleep(_seconds_until_clock(0, 1))
+            write_start("账单赔付")
+            message = await asyncio.to_thread(compensate_service.pull_yesterday)
+            write_success(f"账单赔付 {message}")
+            logger.info("账单赔付 %s", message)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("账单赔付更新失败")
+            write_fail("账单赔付")
+            await asyncio.sleep(60)
+
+
 def _next_daily_text() -> str:
     nxt = datetime.now() + timedelta(seconds=next_home_wait())
     return nxt.strftime("%Y-%m-%d %H:%M")
@@ -332,6 +370,7 @@ async def lifespan(_: FastAPI):
     violation_task = asyncio.create_task(_violation_loop())
     home_task = asyncio.create_task(_home_loop())
     invoice_task = asyncio.create_task(_invoice_loop())
+    compensate_task = asyncio.create_task(_compensate_loop())
     logger.info("%s 已启动，环境：%s", settings.app_name, settings.app_env)
     try:
         yield
@@ -342,6 +381,7 @@ async def lifespan(_: FastAPI):
         violation_task.cancel()
         home_task.cancel()
         invoice_task.cancel()
+        compensate_task.cancel()
         logger.info("%s 已关闭", settings.app_name)
 
 

@@ -4,8 +4,8 @@
     var API_BASE = "/api/v1";
     var TOKEN_KEY = "erp_access_token";
     var NAME_KEY = "erp_display_name";
-    var TITLES = { stores: "店铺列表", "fund-account": "账户中心", invoices: "发票管理", violations: "违规与预警", center: "数据中心", members: "成员管理" };
-    var SECTION_OF = { stores: "stores", violations: "violation", center: "center", "fund-account": "fund", invoices: "fund" };
+    var TITLES = { stores: "店铺列表", "fund-account": "账户中心", invoices: "发票管理", compensates: "账单赔付", violations: "违规与预警", center: "数据中心", members: "成员管理" };
+    var SECTION_OF = { stores: "stores", violations: "violation", center: "center", "fund-account": "fund", invoices: "fund", compensates: "fund" };
     var accessReady = false;
     var accessSections = [];
     var canManageMembers = false;
@@ -101,7 +101,7 @@
     }
 
     function firstAllowed() {
-        var order = ["stores", "violations", "center", "fund-account", "invoices"];
+        var order = ["stores", "violations", "center", "fund-account", "invoices", "compensates"];
         for (var i = 0; i < order.length; i++) {
             if (viewAllowed(order[i])) return order[i];
         }
@@ -142,6 +142,7 @@
         document.getElementById("withdraw-mask").classList.add("hidden");
         if (name === "fund-account" && window.Dash.loadAccounts) window.Dash.loadAccounts();
         if (name === "invoices" && window.Dash.loadInvoices) window.Dash.loadInvoices();
+        if (name === "compensates" && window.Dash.loadCompensates) window.Dash.loadCompensates();
         if (name === "violations" && window.Vio && window.Vio.load) window.Vio.load();
         if (name === "center" && window.Dash.loadCenter) window.Dash.loadCenter();
         if (name === "members" && window.Dash.pages && window.Dash.pages.members) window.Dash.pages.members();
