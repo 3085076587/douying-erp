@@ -48,7 +48,7 @@
         Dash.request("/compensates?" + params.toString()).then(function (data) {
             var items = (data && data.items) || [];
             el("comp-sum").textContent = "当前 " + (data.shop_count || items.length) + " 家，赔付合计 "
-                + money(data.total_fen || 0) + "。每天 00:01 把昨天的赔付入库。";
+                + money(data.total_fen || 0) + "。";
             if (!items.length) {
                 body.innerHTML = '<tr><td colspan="3" class="empty">这个时间里没有赔付记录。</td></tr>';
                 return;
