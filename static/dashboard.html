@@ -209,7 +209,7 @@
                             <thead>
                             <tr>
                                 <th>店铺</th>
-                                <th>赔付金额</th>
+                                <th class="sortable" data-sort="amount">赔付金额</th>
                                 <th>详情</th>
                             </tr>
                             </thead>
@@ -508,7 +508,7 @@
         </div>
         <p id="comp-detail-note" class="form-hint"></p>
         <div class="table-wrap comp-detail-wrap">
-            <table class="data-table">
+            <table class="data-table" id="comp-detail-table">
                 <thead>
                 <tr>
                     <th>动账时间</th>
@@ -516,7 +516,7 @@
                     <th>赔付场景</th>
                     <th>赔付对象</th>
                     <th>动账方向</th>
-                    <th>动账金额</th>
+                    <th class="sortable" data-sort="amount">动账金额</th>
                     <th>出资方</th>
                     <th>动账账户</th>
                     <th>赔付原因</th>
@@ -610,7 +610,7 @@
 <script src="/static/js/dashboard/stores.js?v=11"></script>
 <script src="/static/js/dashboard/accounts.js?v=12"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
-<script src="/static/js/dashboard/compensates.js?v=2"></script>
+<script src="/static/js/dashboard/compensates.js?v=3"></script>
 <script src="/static/js/dashboard/violations.js?v=19"></script>
 <script src="/static/js/dashboard/center.js?v=30"></script>
 <script src="/static/js/dashboard/members.js?v=1"></script>
