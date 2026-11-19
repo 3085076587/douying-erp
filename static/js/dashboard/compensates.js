@@ -132,7 +132,48 @@
         applyRange();
         query();
     });
+    function exportFile() {
+        var params = new URLSearchParams();
+        if (el("comp-shop").value) params.set("store_pk", el("comp-shop").value);
+        if (el("comp-start").value) params.set("start_date", el("comp-start").value);
+        if (el("comp-end").value) params.set("end_date", el("comp-end").value);
+        var button = el("btn-export-compensates");
+        button.disabled = true;
+        fetch("/api/v1/compensates/export?" + params.toString(), {
+            headers: { Authorization: "Bearer " + (localStorage.getItem("erp_access_token") || "") },
+        }).then(function (resp) {
+            if (resp.status === 401) {
+                Dash.showToast("登录已过期，请重新登录", "error");
+                return;
+            }
+            if (!resp.ok) {
+                Dash.showToast("导出失败", "error");
+                return;
+            }
+            var name = "账单赔付.xlsx";
+            var matched = /filename\*=UTF-8''([^;]+)/i.exec(resp.headers.get("Content-Disposition") || "");
+            if (matched) {
+                try { name = decodeURIComponent(matched[1]); } catch (err) {}
+            }
+            return resp.blob().then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                var link = document.createElement("a");
+                link.href = url;
+                link.download = name;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+            });
+        }).catch(function () {
+            Dash.showToast("导出失败", "error");
+        }).then(function () {
+            button.disabled = false;
+        });
+    }
+
     el("btn-query-compensates").addEventListener("click", query);
+    el("btn-export-compensates").addEventListener("click", exportFile);
     el("comp-shop").addEventListener("change", query);
     body.addEventListener("click", function (event) {
         var button = event.target.closest ? event.target.closest(".comp-detail-btn") : null;
