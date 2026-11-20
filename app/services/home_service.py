@@ -71,25 +71,35 @@ def _pull_one(shop_id: int) -> dict:
         shop = db.get(Shop, shop_id)
         if shop is None:
             return {}
+        view = type("ShopView", (), {"id": shop.id, "shop_id": shop.shop_id})()
         cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
         if not cookies or shop.shop_cookie != 1:
-            return _blank(shop, "还没有这家店的登录凭证")
-        try:
-            values = fetch_home_todos(cookies)
-            keep_shop_jar(shop, cookies)
-            db.commit()
-        except ShopAuthError as exc:
-            return _blank(shop, str(exc) or "登录已失效")
-        except ShopApiError as exc:
-            return _blank(shop, exc.message or "首页接口失败")
-        row = _blank(shop)
-        row.update(values)
-        return row
+            return _blank(view, "还没有这家店的登录凭证")
     except Exception:
         _LOG.exception("拉取店铺 %s 首页待办失败", shop_id)
         return {"store_pk": shop_id, "shop_id": "", "sync_error": "暂时没拉到"}
     finally:
         db.close()
+    try:
+        values = fetch_home_todos(cookies)
+    except ShopAuthError as exc:
+        return _blank(view, str(exc) or "登录已失效")
+    except ShopApiError as exc:
+        return _blank(view, exc.message or "首页接口失败")
+    except Exception:
+        _LOG.exception("拉取店铺 %s 首页待办失败", shop_id)
+        return {"store_pk": shop_id, "shop_id": "", "sync_error": "暂时没拉到"}
+    db = SessionLocal()
+    try:
+        shop = db.get(Shop, shop_id)
+        if shop is not None:
+            keep_shop_jar(shop, cookies)
+            db.commit()
+    finally:
+        db.close()
+    row = _blank(view)
+    row.update(values)
+    return row
 
 
 def cache_fresh(seconds: int = 600) -> bool:

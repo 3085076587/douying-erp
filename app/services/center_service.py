@@ -470,16 +470,19 @@ def _remember_overview(key: str, preset: str, date_type: int, start_day: date, e
     }
     _OVERVIEW_CACHE[key] = payload
     fund_cache.write_obj(_overview_kind(key), payload, _CACHE_TTL_SECONDS)
+    _trim_center_caches(key)
 
 
 def _load_overview(key: str) -> dict | None:
     cached = _OVERVIEW_CACHE.get(key)
     if cached:
+        _trim_center_caches(key)
         return cached
     stored = fund_cache.read_obj(_overview_kind(key))
     if not isinstance(stored, dict):
         return None
     _OVERVIEW_CACHE[key] = stored
+    _trim_center_caches(key)
     return stored
 
 
@@ -807,16 +810,19 @@ def _remember_shops(key: str, preset: str, date_type: int, start_day: date, end_
     }
     _SHOP_CACHE[key] = payload
     fund_cache.write_obj(_shop_cache_kind(key), payload, _CACHE_TTL_SECONDS)
+    _trim_center_caches(key)
 
 
 def _load_shops(key: str) -> dict | None:
     cached = _SHOP_CACHE.get(key)
     if cached:
+        _trim_center_caches(key)
         return cached
     stored = fund_cache.read_obj(_shop_cache_kind(key))
     if not isinstance(stored, dict):
         return None
     _SHOP_CACHE[key] = stored
+    _trim_center_caches(key)
     return stored
 
 
@@ -1035,6 +1041,28 @@ def _live_identity(info: dict) -> tuple[str, str]:
 
 _LIVE_SUM_CODES = ("pay_amt", "pay_cnt", "refund_amt", "pay_amt_exclude_refund", "net_pay_cnt")
 _LIVE_SUMMARY_KEY = "product-live"
+
+
+def _current_center_keys() -> set[str]:
+    """今天定时任务还在用的键。换日之后昨天那套不在这里。"""
+    keys = {_LIVE_SUMMARY_KEY, "promotion:current"}
+    for preset in ("realtime", "1", "7", "30"):
+        try:
+            _date_type, start_day, end_day = resolve_span(preset)
+        except Exception:
+            continue
+        keys.add(_span_key(preset, start_day, end_day))
+    return keys
+
+
+def _trim_center_caches(*extra: str) -> None:
+    """进程里只留今天的实时、近 1/7/30 天，外加这次正在读或正在写的那一套。"""
+    keep = _current_center_keys()
+    keep.update(key for key in extra if key)
+    for bucket in (_OVERVIEW_CACHE, _SHOP_CACHE, _PRODUCT_CACHE):
+        for key in list(bucket):
+            if key not in keep:
+                bucket.pop(key, None)
 
 
 def sum_live_cells(raw_rows: list[dict]) -> dict[str, float]:
@@ -1323,16 +1351,19 @@ def _remember_products(
     }
     _PRODUCT_CACHE[key] = payload
     fund_cache.write_obj(_product_cache_kind(key), payload, _CACHE_TTL_SECONDS)
+    _trim_center_caches(key)
 
 
 def _load_products(key: str) -> dict | None:
     cached = _PRODUCT_CACHE.get(key)
     if cached:
+        _trim_center_caches(key)
         return cached
     stored = fund_cache.read_obj(_product_cache_kind(key))
     if not isinstance(stored, dict):
         return None
     _PRODUCT_CACHE[key] = stored
+    _trim_center_caches(key)
     return stored
 
 
@@ -1366,48 +1397,68 @@ def _live_catalog_row(shop: Shop, info: dict | None = None, error: str = "") -> 
     return row
 
 
+def _save_shop_cookies(shop_id: int, cookies: dict) -> None:
+    db = SessionLocal()
+    try:
+        shop = db.get(Shop, shop_id)
+        if shop is None:
+            return
+        keep_shop_jar(shop, cookies)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _pull_live_summary(shop_id: int) -> list[dict]:
     """一家店的实时商品，一行一个商品。走首页商品列表，不走近 1/7/30 天。"""
     db = SessionLocal()
-    shop: Shop | None = None
     try:
         shop = db.get(Shop, shop_id)
         if shop is None:
             return []
+        view = type("ShopView", (), {
+            "id": shop.id,
+            "shop_id": shop.shop_id,
+            "name": shop.name,
+            "login_status": shop.login_status,
+        })()
+        compass_id = str(shop.shop_id or "")
         cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
         if not cookies or shop.shop_cookie != 1:
-            return [_live_catalog_row(shop, error="还没有这家店的登录凭证")]
-        try:
-            raw_rows, error = fetch_live_products(cookies, str(shop.shop_id or ""))
-        except ShopAuthError as exc:
-            return [_live_catalog_row(shop, error=str(exc) or "登录已失效")]
-        except ShopApiError as exc:
-            return [_live_catalog_row(shop, error=exc.message or "罗盘接口失败")]
-        finally:
-            keep_shop_jar(shop, cookies)
-            db.commit()
-        items: list[dict] = []
-        for raw in raw_rows:
-            info = raw.get("cell_info") if isinstance(raw, dict) else None
-            if not isinstance(info, dict):
-                continue
-            shaped = _live_catalog_row(shop, info)
-            if shaped.get("product_id") or shaped.get("product_name"):
-                items.append(shaped)
-        if error and not items:
-            return [_live_catalog_row(shop, error=error)]
-        if error and items:
-            marker = _live_catalog_row(shop, error=error)
-            marker["resume_page"] = 2
-            items.append(marker)
-        return items
+            return [_live_catalog_row(view, error="还没有这家店的登录凭证")]
     except Exception:
         _LOG.exception("拉取店铺 %s 实时商品失败", shop_id)
-        if shop is None:
-            return [{"store_pk": shop_id, "name": "", "login_status": "", "sync_error": "暂时没拉到"}]
-        return [_live_catalog_row(shop, error="暂时没拉到")]
+        return [{"store_pk": shop_id, "name": "", "login_status": "", "sync_error": "暂时没拉到"}]
     finally:
         db.close()
+    try:
+        raw_rows, error = fetch_live_products(cookies, compass_id)
+    except ShopAuthError as exc:
+        _save_shop_cookies(shop_id, cookies)
+        return [_live_catalog_row(view, error=str(exc) or "登录已失效")]
+    except ShopApiError as exc:
+        _save_shop_cookies(shop_id, cookies)
+        return [_live_catalog_row(view, error=exc.message or "罗盘接口失败")]
+    except Exception:
+        _LOG.exception("拉取店铺 %s 实时商品失败", shop_id)
+        _save_shop_cookies(shop_id, cookies)
+        return [_live_catalog_row(view, error="暂时没拉到")]
+    _save_shop_cookies(shop_id, cookies)
+    items: list[dict] = []
+    for raw in raw_rows:
+        info = raw.get("cell_info") if isinstance(raw, dict) else None
+        if not isinstance(info, dict):
+            continue
+        shaped = _live_catalog_row(view, info)
+        if shaped.get("product_id") or shaped.get("product_name"):
+            items.append(shaped)
+    if error and not items:
+        return [_live_catalog_row(view, error=error)]
+    if error and items:
+        marker = _live_catalog_row(view, error=error)
+        marker["resume_page"] = 2
+        items.append(marker)
+    return items
 
 
 def _live_product_row(row: dict) -> bool:
@@ -1778,6 +1829,7 @@ def load_center_cache() -> None:
         _load_products(_LIVE_SUMMARY_KEY)
     except Exception:
         _LOG.exception("读取商品明细实时缓存失败")
+    _trim_center_caches()
     stored = fund_cache.read_obj("center_schedule")
     if isinstance(stored, dict):
         with _SCHEDULE_LOCK:
@@ -1814,6 +1866,7 @@ def run_center_cycle() -> None:
         with _SCHEDULE_LOCK:
             _SCHEDULE.update(payload)
         fund_cache.write_obj("center_schedule", payload, _CACHE_TTL_SECONDS)
+        _trim_center_caches()
         _LOG.info("店铺明细和商品明细下次更新 %s", payload["next_update"])
     finally:
         _COMPASS_TURN.release()

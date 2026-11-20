@@ -32,6 +32,13 @@ def _client():
         return None
 
 
+def _drop_expired_locked() -> None:
+    now = time.time()
+    expired = [key for key, slot in _MEMORY.items() if slot[0] <= now]
+    for key in expired:
+        _MEMORY.pop(key, None)
+
+
 def _raw(kind: str) -> str | None:
     raw = None
     client = _client()
@@ -40,24 +47,32 @@ def _raw(kind: str) -> str | None:
             raw = client.get(f"dy:fund:{kind}")
         except Exception:
             raw = None
-    if raw is None:
-        with _LOCK:
-            slot = _MEMORY.get(kind)
-        if slot is None or slot[0] < time.time():
+    if raw is not None:
+        return raw
+    with _LOCK:
+        _drop_expired_locked()
+        slot = _MEMORY.get(kind)
+        if slot is None:
             return None
-        raw = slot[1]
-    return raw
+        return slot[1]
 
 
 def _save(kind: str, raw: str, ttl_seconds: int) -> None:
+    """Redis 写成功就只留 Redis。写失败才把这份 JSON 放进进程，给 Redis 不可用时垫一下。"""
+    saved = False
     client = _client()
     if client is not None:
         try:
             client.set(f"dy:fund:{kind}", raw, ex=ttl_seconds)
+            saved = True
         except Exception:
-            pass
+            saved = False
     with _LOCK:
-        _MEMORY[kind] = (time.time() + ttl_seconds, raw)
+        _drop_expired_locked()
+        if saved:
+            _MEMORY.pop(kind, None)
+        else:
+            _MEMORY[kind] = (time.time() + ttl_seconds, raw)
 
 
 def read(kind: str) -> list | None:
@@ -100,6 +115,7 @@ def kinds() -> list[str]:
         except Exception:
             pass
     with _LOCK:
+        _drop_expired_locked()
         found.update(_MEMORY)
     return list(found)
 
@@ -114,6 +130,7 @@ def _ttl(kind: str) -> int:
         if left > 0:
             return left
     with _LOCK:
+        _drop_expired_locked()
         slot = _MEMORY.get(kind)
     if slot is None:
         return 7 * 24 * 3600

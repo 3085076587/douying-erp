@@ -8,6 +8,8 @@ engine = create_engine(
     _settings.database_url,
     pool_pre_ping=True,
     pool_recycle=3600,
+    pool_size=20,
+    max_overflow=20,
     echo=False,
 )
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
