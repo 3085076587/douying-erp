@@ -26,6 +26,20 @@
     var productPresetValue = "7";
     var productStartValue = "";
     var productEndValue = "";
+    var dealData = null;
+    var dealMetric = {};
+    var dealSpan = 7;
+    var dealAccount = "";
+    var dealChartSeq = 0;
+    var DEAL_METRICS = [
+        { key: "pay_gmv", label: "成交金额", money: true },
+        { key: "user_pay_gmv", label: "用户支付金额", money: true },
+        { key: "pay_order_cnt", label: "成交订单数", money: false },
+        { key: "pay_uv", label: "成交人数", money: false },
+        { key: "refund_pay_gmv", label: "退款金额（支付时间）", money: true },
+        { key: "refund_pay_ratio", label: "退款率（支付时间）", money: false, rate: true },
+        { key: "refund_pay_cnt", label: "退款订单数（支付时间）", money: false }
+    ];
     var SHELL_OPTIONS = [
         ["realtime", "实时"],
         ["1", "近1天"],
@@ -34,6 +48,7 @@
         ["custom", "自定义"]
     ];
     var PRODUCT_OPTIONS = [
+        ["realtime", "实时"],
         ["1", "近1天"],
         ["7", "近7天"],
         ["30", "近30天"],
@@ -72,7 +87,7 @@
         var note = el("center-range-note");
         if (!note) return;
         if (tab === "products") {
-            note.textContent = "默认近7天。近1天、近7天、近30天不用填日期。自定义选开始和结束，最多 90 天。";
+            note.textContent = "实时是各店首页商品明细的汇总。近1天、近7天、近30天是另一套商品列表。自定义选开始和结束，最多 90 天。";
             return;
         }
         note.textContent = "默认实时。近 1 天、近 7 天、近 30 天截止到昨天。自定义只能选今天和前 90 天。";
@@ -176,6 +191,7 @@
 
     function productEmptyText(data) {
         if (data && data.note) return data.note;
+        if (productIsLive(data)) return data && data.updated_at ? "还没有可汇总的商品" : "实时汇总还没有，点查询拉取";
         if (data && data.updated_at) return "这个时间没有商品";
         return "这个时间还没有缓存，点查询拉取";
     }
@@ -186,7 +202,9 @@
         if (!node) return;
         var current = scheduleState;
         var text = "";
-        if (tab === "products" && current && current.next_update) {
+        if (tab === "products" && current && current.next_update && preset() === "realtime") {
+            text = "实时每" + (current.interval_minutes || 10) + "分钟按各店商品明细汇总，下次更新 " + current.next_update;
+        } else if (tab === "products" && current && current.next_update) {
             text = "每" + (current.interval_minutes || 10) + "分钟更新近1天、近7天、近30天，下次更新 " + current.next_update;
         } else if (tab === "shops" && current && current.next_update) {
             text = "每" + (current.interval_minutes || 10) + "分钟更新一次，下次更新 " + current.next_update;
@@ -209,7 +227,7 @@
                 if (dailySeen === null) dailySeen = dailyStamp;
                 else if (dailyStamp !== dailySeen) {
                     dailySeen = dailyStamp;
-                    if (tab === "overview") query();
+                    if (tab === "overview") loadDeals();
                     if (tab === "home") loadHome();
                 }
                 if (state.last_update && state.last_update !== scheduleSeen) {
@@ -278,10 +296,20 @@
         return input ? input.value.trim().toLowerCase() : "";
     }
 
+    function productIsLive(data) {
+        return !!data && (data.layout === "shops" || data.preset === "realtime");
+    }
+
     function matchProductSearch(items) {
         var keyword = productKeyword();
         if (!keyword) return items;
+        var live = productIsLive(productData);
         return items.filter(function (item) {
+            if (live) {
+                var shopName = String(item.name || "").toLowerCase();
+                var shopId = String(item.shop_id || "").toLowerCase();
+                return shopName.indexOf(keyword) >= 0 || shopId.indexOf(keyword) >= 0;
+            }
             var name = String(item.product_name || "").toLowerCase();
             var id = String(item.product_id || "").toLowerCase();
             return name.indexOf(keyword) >= 0 || id.indexOf(keyword) >= 0;
@@ -732,6 +760,15 @@
                 ["待处理违规", formatCount(sumField(items || [], "pending_violation"))]
             ];
         } else if (tab === "shops" || tab === "products") {
+        } else if (tab === "products" && productIsLive(productData)) {
+            var pay = sumField(items || [], "pay_amount");
+            var orders = sumField(items || [], "order_count");
+            fields = [
+                ["成交金额", formatMoney(pay)],
+                ["成交订单数", formatCount(orders)],
+                ["退款金额", formatMoney(sumField(items || [], "refund_amount"))],
+                ["客单价", orders ? formatMoney(pay / orders) : "—"]
+            ];
             fields = [
                 ["成交金额", formatMoney(sumField(items || [], "pay_amount"))],
                 ["成交订单数", formatCount(sumField(items || [], "order_count"))],
@@ -884,21 +921,49 @@
     function paintProducts() {
         if (!productData) return;
         var body = el("center-products-tbody");
+        var live = productIsLive(productData);
+        var itemHead = el("center-products-head-items");
+        var liveHead = el("center-products-head-live");
+        if (itemHead) itemHead.classList.toggle("hidden", live);
+        if (liveHead) liveHead.classList.toggle("hidden", !live);
+        var search = el("center-product-q");
+        if (search) search.placeholder = live ? "店铺名称" : "商品名称或ID";
+        var body = el("center-products-tbody");
+        var span = live ? 8 : 7;
         var scoped = visibleItems(productData.items || []);
         var items = sortedCopy(matchProductSearch(scoped), productSort);
         paintSortMarks();
         paintHeadSummary(items);
         if (!(productData.items && productData.items.length)) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml(productEmptyText(productData)) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="' + span + '" class="empty">' + Dash.escapeHtml(productEmptyText(productData)) + "</td></tr>";
             return;
         }
         if (!scoped.length) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            body.innerHTML = '<tr><td colspan="' + span + '" class="empty">没有符合当前账号和店铺的数据</td></tr>';
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">没有符合搜索的商品</td></tr>';
+            body.innerHTML = '<tr><td colspan="' + span + '" class="empty">' + (live ? "没有符合搜索的店铺" : "没有符合搜索的商品") + "</td></tr>";
             return;
+        }
+        if (live) {
+            body.innerHTML = items.map(function (item) {
+                var shop = "<td>" + Dash.escapeHtml(item.name || "未命名店铺")
+                    + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
+                if (item.sync_error) {
+                    var errorText = item.sync_error.indexOf("频繁") >= 0 ? "暂无商品数据" : item.sync_error;
+                    return "<tr>" + shop + '<td colspan="7" class="center-error">' + Dash.escapeHtml(errorText) + "</td></tr>";
+                }
+                return "<tr>" + shop
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.pay_amount || "—") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_amount || "—") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.show_user_count || "0") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.pay_user_count || "0") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.avg_pay || "—") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_order_count || "0") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.order_count || "0") + "</div></td>"
+                    + "</tr>";
+            }).join("");
         }
         body.innerHTML = items.map(function (item) {
             var product = '<td class="center-product-name">' + Dash.escapeHtml(item.product_name || "—");
@@ -939,7 +1004,7 @@
         var done = state.done || 0;
         el("center-products-bar").style.width = (total ? Math.round(done / total * 100) : 8) + "%";
         el("center-products-progress-text").textContent = total
-            ? ("正在拉取商品明细 " + done + " / " + total + " 家")
+            ? ((preset() === "realtime" ? "正在汇总各店实时商品 " : "正在拉取商品明细 ") + done + " / " + total + " 家")
             : "正在拉取…";
     }
 
@@ -1109,6 +1174,7 @@
             if (shellEnd) el("center-end").value = shellEnd;
         }
         fillPresetDates(false);
+        el("view-center").classList.toggle("center-on-overview", tab === "overview");
         el("view-center").classList.toggle("center-has-summary", tab === "home" || tab === "shops" || tab === "products");
         paintSchedule();
         paintShellFilters();
@@ -1121,22 +1187,455 @@
         if (tab === "products") ensureProducts();
     }
 
-    function ensureOverview() {
-        if (latest && (latest.items || []).length) {
-            paint(latest);
+    function dealDayText(offset) {
+        var day = new Date();
+        day.setHours(12, 0, 0, 0);
+        day.setDate(day.getDate() - offset);
+        var month = day.getMonth() + 1;
+        var date = day.getDate();
+        return day.getFullYear() + "-" + (month < 10 ? "0" : "") + month + "-" + (date < 10 ? "0" : "") + date;
+    }
+
+    function markDealSpan() {
+        document.querySelectorAll("[data-deal-span]").forEach(function (btn) {
+            btn.classList.toggle("btn-primary", btn.getAttribute("data-deal-span") === String(dealSpan));
+        });
+    }
+
+    function setDealRange(days) {
+        dealSpan = days;
+        var end = el("deal-end");
+        var start = el("deal-start");
+        if (!end || !start) return;
+        var yesterday = dealDayText(1);
+        end.max = yesterday;
+        start.max = yesterday;
+        end.value = yesterday;
+        start.value = dealDayText(days);
+        markDealSpan();
+    }
+
+    function syncDealSpan() {
+        var start = el("deal-start").value;
+        var end = el("deal-end").value;
+        var yesterday = dealDayText(1);
+        dealSpan = 0;
+        if (end === yesterday && start === dealDayText(7)) dealSpan = 7;
+        if (end === yesterday && start === dealDayText(30)) dealSpan = 30;
+        markDealSpan();
+    }
+
+    function dealMoney(fen, axis) {
+        var yuan = (Number(fen) || 0) / 100;
+        var sign = yuan < 0 ? "-" : "";
+        var abs = Math.abs(yuan);
+        var text = axis && (abs >= 100 || Math.abs(abs - Math.round(abs)) < 0.001)
+            ? String(Math.round(abs))
+            : abs.toFixed(2);
+        var parts = text.split(".");
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        return sign + "¥" + parts.join(".");
+    }
+
+    function dealCount(value) {
+        return String(Math.round(Number(value) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    function dealShown(value, meta) {
+        if (meta && meta.rate) {
+            return ((Number(value) || 0) / 100).toFixed(2) + "%";
+        }
+        return meta && meta.money ? dealMoney(value, false) : dealCount(value);
+    }
+
+    function cardText(shops, meta) {
+        return dealShown(periodTotal(shops, meta.key), meta);
+    }
+
+    function metricMeta(key) {
+        for (var i = 0; i < DEAL_METRICS.length; i++) {
+            if (DEAL_METRICS[i].key === key) return DEAL_METRICS[i];
+        }
+        return DEAL_METRICS[0];
+    }
+
+    function selectedDealShops(group) {
+        return (group && group.shops) || [];
+    }
+
+    function dayCount() {
+        return ((dealData && dealData.days) || []).length;
+    }
+
+    function seriesOf(shops, key) {
+        var count = dayCount();
+        var totals = [];
+        for (var index = 0; index < count; index++) {
+            if (key === "refund_pay_ratio") {
+                var refund = 0;
+                var pay = 0;
+                shops.forEach(function (shop) {
+                    refund += Number((shop.refund_pay_gmv || [])[index]) || 0;
+                    pay += Number((shop.pay_gmv || [])[index]) || 0;
+                });
+                totals.push(pay ? Math.round(refund / pay * 10000) : 0);
+            } else {
+                var total = 0;
+                shops.forEach(function (shop) {
+                    total += Number((shop[key] || [])[index]) || 0;
+                });
+                totals.push(total);
+            }
+        }
+        return totals;
+    }
+
+    function periodTotal(shops, key) {
+        if (key === "refund_pay_ratio") {
+            var refund = 0;
+            var pay = 0;
+            shops.forEach(function (shop) {
+                (shop.refund_pay_gmv || []).forEach(function (value) { refund += Number(value) || 0; });
+                (shop.pay_gmv || []).forEach(function (value) { pay += Number(value) || 0; });
+            });
+            return pay ? Math.round(refund / pay * 10000) : 0;
+        }
+        var total = 0;
+        shops.forEach(function (shop) {
+            (shop[key] || []).forEach(function (value) { total += Number(value) || 0; });
+        });
+        return total;
+    }
+
+    function dealMode(meta) {
+        if (meta && meta.rate) return "rate";
+        return meta && meta.money ? "money" : "count";
+    }
+
+    function dealAxis(maxValue, mode) {
+        var scaled = mode === "count" ? 1 : 100;
+        var raw = Math.max(0, maxValue) / scaled;
+        if (raw <= 0) raw = 1;
+        var rough = raw / 4;
+        var pow = Math.pow(10, Math.floor(Math.log10(rough)));
+        var stepUnit = rough / pow;
+        var nice = stepUnit <= 1 ? 1 : stepUnit <= 2 ? 2 : stepUnit <= 2.5 ? 2.5 : stepUnit <= 5 ? 5 : 10;
+        var step = nice * pow;
+        var top = Math.ceil((raw / step) - 1e-9) * step;
+        if (top < raw) top += step;
+        var ticks = [];
+        var cursor = 0;
+        while (cursor <= top + step * 0.01 && ticks.length < 8) {
+            ticks.push(mode === "count" ? cursor : Math.round(cursor * scaled));
+            cursor += step;
+        }
+        return { ticks: ticks, max: mode === "count" ? top : top * scaled };
+    }
+
+    function dealCurve(points) {
+        if (!points.length) return "";
+        if (points.length === 1) return "M " + points[0].x + " " + points[0].y;
+        var path = "M " + points[0].x + " " + points[0].y;
+        for (var index = 0; index < points.length - 1; index += 1) {
+            var current = points[index];
+            var next = points[index + 1];
+            var previous = points[index - 1] || current;
+            var after = points[index + 2] || next;
+            var cp1x = current.x + (next.x - previous.x) / 6;
+            var cp1y = current.y + (next.y - previous.y) / 6;
+            var cp2x = next.x - (after.x - current.x) / 6;
+            var cp2y = next.y - (after.y - current.y) / 6;
+            path += " C " + cp1x.toFixed(1) + " " + cp1y.toFixed(1) + ", " + cp2x.toFixed(1) + " " + cp2y.toFixed(1) + ", " + next.x + " " + next.y;
+        }
+        return path;
+    }
+
+    function dealTick(value, mode) {
+        if (mode === "money") return dealMoney(value, true);
+        if (mode === "rate") return ((Number(value) || 0) / 100).toFixed(2) + "%";
+        return dealCount(value);
+    }
+
+    function dealChart(labels, values, meta) {
+        dealChartSeq += 1;
+        var width = 760;
+        var height = 180;
+        var left = 104;
+        var right = 20;
+        var top = 12;
+        var bottom = 28;
+        var mode = dealMode(meta);
+        var metricLabel = meta && meta.label;
+        var nums = values.map(function (value) { return Number(value) || 0; });
+        if (!nums.length) return "";
+        var peak = 0;
+        nums.forEach(function (value) { if (value > peak) peak = value; });
+        var axis = dealAxis(peak, mode);
+        var max = axis.max || (mode === "count" ? 1 : 100);
+        var innerW = width - left - right;
+        var innerH = height - top - bottom;
+        var baseline = top + innerH;
+        var step = nums.length > 1 ? innerW / (nums.length - 1) : 0;
+        var points = nums.map(function (value, index) {
+            return {
+                x: (left + (nums.length === 1 ? innerW / 2 : step * index)).toFixed(1),
+                y: (top + innerH - (value / max) * innerH).toFixed(1)
+            };
+        });
+        var numeric = points.map(function (point) { return { x: Number(point.x), y: Number(point.y) }; });
+        var line = dealCurve(numeric);
+        var area = line + " L " + numeric[numeric.length - 1].x + " " + baseline + " L " + numeric[0].x + " " + baseline + " Z";
+        var fillId = "deal-fill-" + dealChartSeq;
+        var grid = axis.ticks.map(function (value) {
+            var y = top + innerH - (value / max) * innerH;
+            var shown = dealTick(value, mode);
+            return '<line x1="' + left + '" y1="' + y.toFixed(1) + '" x2="' + (width - right) + '" y2="' + y.toFixed(1) + '" stroke="#eef2f6"/>' +
+                '<text x="' + (left - 8) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" font-size="12" fill="#94a3b8">' + Dash.escapeHtml(shown) + "</text>";
+        }).join("");
+        var labelEvery = labels.length > 10 ? Math.ceil(labels.length / 7) : 1;
+        var xText = labels.map(function (label, index) {
+            if (index % labelEvery !== 0 && index !== labels.length - 1) return "";
+            var shown = String(label).replace(/-/g, "/");
+            if (labels.length > 10) shown = shown.slice(5);
+            return '<text x="' + numeric[index].x + '" y="' + (height - 8) + '" text-anchor="middle" font-size="12" fill="#94a3b8">' + Dash.escapeHtml(shown) + "</text>";
+        }).join("");
+        var hits = numeric.map(function (point, index) {
+            var slot = nums.length > 1 ? step : innerW;
+            var x = point.x - slot / 2;
+            var dateText = String(labels[index] || "").replace(/-/g, "/");
+            return '<g class="deal-point">' +
+                '<rect class="deal-hit" data-i="' + index + '" x="' + x.toFixed(1) + '" y="' + top + '" width="' + Math.max(slot, 8).toFixed(1) + '" height="' + innerH + '" fill="transparent"' +
+                ' data-date="' + Dash.escapeHtml(dateText) + '" data-name="' + Dash.escapeHtml(metricLabel || "") + '" data-value="' + Dash.escapeHtml(dealShown(nums[index], meta)) + '"' +
+                ' data-x="' + point.x + '" data-y="' + point.y + '"></rect>' +
+                '<circle class="deal-dot" data-i="' + index + '" cx="' + point.x + '" cy="' + point.y + '" r="4.5" fill="#fff" stroke="#2ec9be" stroke-width="2"></circle>' +
+                "</g>";
+        }).join("");
+        return '<div class="deal-chart-wrap"><div class="deal-legend"><span class="deal-tip-dot"></span>' + Dash.escapeHtml(metricLabel || "") + '</div><svg class="deal-chart" style="aspect-ratio:' + width + " / " + height + '" viewBox="0 0 ' + width + " " + height + '" role="img">' +
+            "<defs><linearGradient id=\"" + fillId + '" x1="0" y1="0" x2="0" y2="1">' +
+            '<stop offset="0%" stop-color="#7ee8dc" stop-opacity="0.55"/>' +
+            '<stop offset="100%" stop-color="#7ee8dc" stop-opacity="0.02"/>' +
+            "</linearGradient></defs>" +
+            grid +
+            '<path d="' + area + '" fill="url(#' + fillId + ')" stroke="none"></path>' +
+            '<path d="' + line + '" fill="none" stroke="#2ec9be" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></path>' +
+            '<line class="deal-guide" x1="-10" y1="' + top + '" x2="-10" y2="' + baseline + '" stroke="#dbe4ee" stroke-dasharray="3 3"></line>' +
+            xText + hits + "</svg>" +
+            '<div class="deal-tip" hidden></div></div>';
+    }
+
+    function hideDealTip(wrap) {
+        if (!wrap) return;
+        var tip = wrap.querySelector(".deal-tip");
+        if (tip) tip.hidden = true;
+        wrap.querySelectorAll(".deal-dot").forEach(function (dot) { dot.classList.remove("is-on"); });
+        var guide = wrap.querySelector(".deal-guide");
+        if (guide) {
+            guide.setAttribute("x1", "-10");
+            guide.setAttribute("x2", "-10");
+        }
+    }
+
+    function showDealTip(wrap, hit) {
+        var tip = wrap.querySelector(".deal-tip");
+        var svg = wrap.querySelector("svg");
+        if (!tip || !svg) return;
+        tip.innerHTML = '<div class="deal-tip-date">' + Dash.escapeHtml(hit.getAttribute("data-date") || "") + "</div>" +
+            '<div class="deal-tip-row"><span class="deal-tip-dot"></span><span>' + Dash.escapeHtml(hit.getAttribute("data-name") || "") +
+            '</span><span class="deal-tip-value">' + Dash.escapeHtml(hit.getAttribute("data-value") || "") + "</span></div>";
+        tip.hidden = false;
+        var index = hit.getAttribute("data-i");
+        wrap.querySelectorAll(".deal-dot").forEach(function (dot) {
+            dot.classList.toggle("is-on", dot.getAttribute("data-i") === index);
+        });
+        var guide = wrap.querySelector(".deal-guide");
+        if (guide) {
+            guide.setAttribute("x1", hit.getAttribute("data-x"));
+            guide.setAttribute("x2", hit.getAttribute("data-x"));
+        }
+        var box = svg.getBoundingClientRect();
+        var view = svg.viewBox.baseVal;
+        var px = (Number(hit.getAttribute("data-x")) / view.width) * box.width;
+        var py = (Number(hit.getAttribute("data-y")) / view.height) * box.height;
+        var width = tip.offsetWidth || 148;
+        tip.style.left = Math.max(8, Math.min(px - width / 2, box.width - width - 8)) + "px";
+        tip.style.top = Math.max(8, py - tip.offsetHeight - 12) + "px";
+    }
+
+    function drawDealChart(index) {
+        var group = (dealData.groups || [])[index];
+        var block = document.querySelector('[data-deal-index="' + index + '"]');
+        if (!group || !block) return;
+        var key = dealMetric[group.account] || "pay_gmv";
+        var meta = metricMeta(key);
+        var slot = block.querySelector(".deal-chart-slot");
+        slot.innerHTML = dealChart(dealData.days || [], seriesOf(selectedDealShops(group), key), meta);
+    }
+
+    function shopTitle(shops) {
+        var names = [];
+        (shops || []).forEach(function (shop) {
+            var name = shop.name || "";
+            if (name && names.indexOf(name) < 0) names.push(name);
+        });
+        return names.join("、") || "未命名店铺";
+    }
+
+    function updateDealBlock(index) {
+        var group = (dealData.groups || [])[index];
+        var block = document.querySelector('[data-deal-index="' + index + '"]');
+        if (!group || !block) return;
+        var shops = selectedDealShops(group);
+        var title = block.querySelector(".deal-block-title");
+        if (title) title.textContent = shopTitle(shops);
+        var current = dealMetric[group.account] || "pay_gmv";
+        block.querySelectorAll("[data-deal-metric]").forEach(function (card) {
+            var key = card.getAttribute("data-deal-metric");
+            card.classList.toggle("is-on", key === current);
+            var value = card.querySelector(".deal-card-value");
+            if (value) value.textContent = cardText(shops, metricMeta(key));
+        });
+        drawDealChart(index);
+    }
+
+    var dealPickIndex = 0;
+
+    function dealAccountLabel(account) {
+        var groups = (dealData && dealData.groups) || [];
+        for (var i = 0; i < groups.length; i++) {
+            if (groups[i].account === account) return shopTitle(groups[i].shops);
+        }
+        return "";
+    }
+
+    function syncDealPickInput() {
+        var input = el("deal-shop-q");
+        if (!input) return;
+        input.value = dealAccount ? dealAccountLabel(dealAccount) : "";
+    }
+
+    function dealPickChoices(query) {
+        var text = (query || "").trim().toLowerCase();
+        var items = [{ account: "", label: "全部店铺" }];
+        ((dealData && dealData.groups) || []).forEach(function (group) {
+            items.push({ account: group.account || "", label: shopTitle(group.shops) });
+        });
+        if (!text) return items;
+        return items.filter(function (item) {
+            return item.account && item.label.toLowerCase().indexOf(text) >= 0;
+        });
+    }
+
+    function closeDealPick() {
+        var menu = el("deal-pick-menu");
+        if (menu) menu.classList.add("hidden");
+    }
+
+    function openDealPick(query) {
+        var menu = el("deal-pick-menu");
+        if (!menu) return;
+        var items = dealPickChoices(query);
+        dealPickIndex = 0;
+        if (!items.length) {
+            menu.innerHTML = '<p class="deal-pick-empty">没有匹配的店铺</p>';
+        } else {
+            menu.innerHTML = items.map(function (item, index) {
+                var on = item.account === (dealAccount || "") ? " is-on" : "";
+                return '<button type="button" class="deal-pick-item' + on + '" data-pick-account="' + Dash.escapeHtml(item.account) + '" data-pick-i="' + index + '">' + Dash.escapeHtml(item.label) + "</button>";
+            }).join("");
+        }
+        menu.classList.remove("hidden");
+    }
+
+    function chooseDealAccount(account) {
+        var groups = (dealData && dealData.groups) || [];
+        var still = !account || groups.some(function (group) { return group.account === account; });
+        dealAccount = still ? (account || "") : "";
+        syncDealPickInput();
+        closeDealPick();
+        if (dealData) paintDeals();
+    }
+
+    function fillDealAccounts() {
+        var groups = (dealData && dealData.groups) || [];
+        var still = groups.some(function (group) { return group.account === dealAccount; });
+        if (!still) dealAccount = "";
+        syncDealPickInput();
+        closeDealPick();
+    }
+
+    function visibleDealGroups() {
+        var groups = (dealData && dealData.groups) || [];
+        return groups.map(function (group, index) {
+            return { group: group, index: index };
+        }).filter(function (item) {
+            return !dealAccount || item.group.account === dealAccount;
+        });
+    }
+
+    function paintDeals() {
+        var board = el("deal-board");
+        var shown = visibleDealGroups();
+        if (!shown.length) {
+            board.innerHTML = '<p class="empty">还没有可以按抖音号汇总的店铺</p>';
             return;
         }
-        var path = rangeQuery();
-        if (!path) return;
-        Dash.request(path).then(function (data) {
-            if ((data.items || []).length) {
-                paint(data);
-                return;
-            }
-            el("center-list").innerHTML = '<p class="empty">正在准备，启动后会先更新一次</p>';
-        }).catch(function () {
-            el("center-list").innerHTML = '<p class="empty">正在准备，启动后会先更新一次</p>';
+        board.innerHTML = shown.map(function (item) {
+            var group = item.group;
+            var index = item.index;
+            var shops = selectedDealShops(group);
+            var current = dealMetric[group.account] || "pay_gmv";
+            var cards = DEAL_METRICS.map(function (meta) {
+                return '<button type="button" class="deal-card' + (meta.key === current ? " is-on" : "") + '" data-deal-metric="' + meta.key + '">' +
+                    '<span class="deal-card-label">' + Dash.escapeHtml(meta.label) + "</span>" +
+                    '<span class="deal-card-value">' + Dash.escapeHtml(cardText(shops, meta)) + "</span></button>";
+            }).join("");
+            return '<section class="deal-block" data-deal-index="' + index + '">' +
+                '<div class="deal-head"><h3 class="deal-block-title">' + Dash.escapeHtml(shopTitle(shops)) + "</h3></div>" +
+                '<div class="deal-cards">' + cards + "</div>" +
+                '<div class="deal-chart-slot"></div></section>';
+        }).join("");
+        shown.forEach(function (item) { drawDealChart(item.index); });
+    }
+
+    function loadDeals() {
+        var startInput = el("deal-start");
+        var endInput = el("deal-end");
+        if (!startInput || !endInput) return;
+        if (!startInput.value || !endInput.value) setDealRange(dealSpan || 7);
+        var yesterday = dealDayText(1);
+        startInput.max = yesterday;
+        endInput.max = yesterday;
+        var start = startInput.value;
+        var end = endInput.value;
+        if (end > yesterday) {
+            Dash.showToast("结束日期不能选今天", "error");
+            return;
+        }
+        var span = Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1;
+        if (!(span >= 1)) {
+            Dash.showToast("开始日期不能晚于结束日期", "error");
+            return;
+        }
+        if (span > 93) {
+            Dash.showToast("一次最多选择 93 天", "error");
+            return;
+        }
+        var board = el("deal-board");
+        board.innerHTML = '<p class="empty">正在读取…</p>';
+        Dash.request("/center/deals?start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end)).then(function (data) {
+            dealData = data || { groups: [], days: [] };
+            if (data && data.start) startInput.value = data.start;
+            if (data && data.end) endInput.value = data.end;
+            syncDealSpan();
+            fillDealAccounts();
+            paintDeals();
+        }).catch(function (err) {
+            board.innerHTML = '<p class="empty">' + Dash.escapeHtml((err && err.message) || "加载失败") + "</p>";
         });
+    }
+
+    function ensureOverview() {
+        loadDeals();
     }
 
     function loadShops() {
@@ -1167,6 +1666,7 @@
             shopData = null;
             if (tab === "overview") ensureOverview();
             if (tab === "shops") ensureShops();
+            if (tab === "shops") ensureShops();
         });
         el("center-start").addEventListener("change", function () {
             if (tab === "products") {
@@ -1177,7 +1677,6 @@
             if (preset() !== "custom") return;
             latest = null;
             shopData = null;
-            if (tab === "overview") refresh();
             if (tab === "shops") refreshShops();
         });
         el("center-end").addEventListener("change", function () {
@@ -1190,6 +1689,7 @@
             latest = null;
             shopData = null;
             if (tab === "overview") refresh();
+            if (tab === "shops") refreshShops();
             if (tab === "shops") refreshShops();
         });
         el("center-account").addEventListener("change", function () {
@@ -1211,16 +1711,14 @@
             if (productData) paintProducts();
         });
         el("btn-refresh-center").addEventListener("click", function () {
-            if (tab === "overview") refresh();
-            else if (tab === "home") refreshHome();
+            if (tab === "overview") return;
+            if (tab === "home") refreshHome();
             else if (tab === "shops") refreshShops();
             else if (tab === "products") refreshProducts();
         });
         el("btn-center-query").addEventListener("click", function () {
-            if (tab === "overview") refresh();
-            else if (tab === "shops") refreshShops();
-            else if (tab === "products") refreshProducts();
-            else paintHome();
+            if (tab === "overview") return;
+            if (tab === "shops") refreshShops();
         });
         el("center-shops-tbody").addEventListener("click", function (event) {
             var button = event.target.closest("[data-live-shop]");
@@ -1239,6 +1737,86 @@
             btn.addEventListener("click", function () {
                 showTab(btn.getAttribute("data-center-tab"));
             });
+        });
+        el("deal-shop-q").addEventListener("focus", function () {
+            el("deal-shop-q").select();
+            openDealPick("");
+        });
+        el("deal-shop-q").addEventListener("input", function () {
+            openDealPick(el("deal-shop-q").value);
+        });
+        el("deal-shop-q").addEventListener("keydown", function (event) {
+            var menu = el("deal-pick-menu");
+            var buttons = menu ? menu.querySelectorAll(".deal-pick-item") : [];
+            if (event.key === "Escape") {
+                syncDealPickInput();
+                closeDealPick();
+                return;
+            }
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                if (!buttons.length || menu.classList.contains("hidden")) openDealPick(el("deal-shop-q").value);
+                buttons = el("deal-pick-menu").querySelectorAll(".deal-pick-item");
+                if (!buttons.length) return;
+                dealPickIndex += event.key === "ArrowDown" ? 1 : -1;
+                if (dealPickIndex < 0) dealPickIndex = buttons.length - 1;
+                if (dealPickIndex >= buttons.length) dealPickIndex = 0;
+                buttons.forEach(function (btn, index) { btn.classList.toggle("is-hot", index === dealPickIndex); });
+                buttons[dealPickIndex].scrollIntoView({ block: "nearest" });
+                return;
+            }
+            if (event.key === "Enter") {
+                event.preventDefault();
+                if (!buttons.length || menu.classList.contains("hidden")) {
+                    chooseDealAccount("");
+                    return;
+                }
+                var hot = buttons[dealPickIndex] || buttons[0];
+                chooseDealAccount(hot.getAttribute("data-pick-account") || "");
+            }
+        });
+        el("deal-pick").addEventListener("mousedown", function (event) {
+            var button = event.target.closest(".deal-pick-item");
+            if (!button) return;
+            event.preventDefault();
+            chooseDealAccount(button.getAttribute("data-pick-account") || "");
+        });
+        document.addEventListener("mousedown", function (event) {
+            var pick = el("deal-pick");
+            if (!pick || pick.contains(event.target)) return;
+            syncDealPickInput();
+            closeDealPick();
+        });
+        document.querySelectorAll("[data-deal-span]").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                setDealRange(Number(btn.getAttribute("data-deal-span")) || 7);
+                loadDeals();
+            });
+        });
+        el("btn-deal-query").addEventListener("click", loadDeals);
+        el("deal-start").addEventListener("change", syncDealSpan);
+        el("deal-end").addEventListener("change", syncDealSpan);
+        el("deal-board").addEventListener("click", function (event) {
+            var card = event.target.closest("[data-deal-metric]");
+            if (card) {
+                var block = card.closest("[data-deal-index]");
+                var index = Number(block.getAttribute("data-deal-index"));
+                var group = (dealData.groups || [])[index];
+                if (!group) return;
+                dealMetric[group.account] = card.getAttribute("data-deal-metric");
+                updateDealBlock(index);
+            }
+        });
+        el("deal-board").addEventListener("mousemove", function (event) {
+            var hit = event.target.closest ? event.target.closest(".deal-hit") : null;
+            var wrap = hit && hit.closest ? hit.closest(".deal-chart-wrap") : null;
+            el("deal-board").querySelectorAll(".deal-chart-wrap").forEach(function (item) {
+                if (item !== wrap) hideDealTip(item);
+            });
+            if (wrap && hit) showDealTip(wrap, hit);
+        });
+        el("deal-board").addEventListener("mouseleave", function () {
+            el("deal-board").querySelectorAll(".deal-chart-wrap").forEach(hideDealTip);
         });
         document.querySelectorAll(".center-sort").forEach(function (btn) {
             btn.addEventListener("click", function () {

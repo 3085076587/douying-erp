@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/static/css/dashboard.css?v=22">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=4">
     <link rel="stylesheet" href="/static/css/pages/compensates.css?v=1">
-    <link rel="stylesheet" href="/static/css/pages/center.css?v=13">
+    <link rel="stylesheet" href="/static/css/pages/center.css?v=17">
 </head>
 <body>
 <div class="layout">
@@ -321,6 +321,21 @@
                         <button class="center-tab" type="button" data-center-tab="products">商品明细</button>
                     </div>
                     <div class="center-pane" id="center-pane-overview" data-center-pane="overview">
+                        <div class="deal-tools">
+                            <button class="btn" type="button" data-deal-span="7">近7天</button>
+                            <button class="btn" type="button" data-deal-span="30">近30天</button>
+                            <input id="deal-start" type="date">
+                            <span class="center-date-sep">至</span>
+                            <input id="deal-end" type="date">
+                            <button class="btn btn-primary" id="btn-deal-query" type="button">查询</button>
+                            <label class="deal-account-label" for="deal-shop-q">店铺</label>
+                            <div class="deal-pick" id="deal-pick">
+                                <input id="deal-shop-q" type="text" placeholder="搜索店铺" autocomplete="off" spellcheck="false">
+                                <div class="deal-pick-menu hidden" id="deal-pick-menu"></div>
+                            </div>
+                            <span class="form-hint">结束日期不能选今天，一次最多 93 天</span>
+                        </div>
+                        <div id="deal-board" class="deal-board"></div>
                         <div id="center-progress" class="center-progress hidden">
                             <div class="center-progress-row">
                                 <span class="center-spinner"></span>
@@ -328,7 +343,7 @@
                             </div>
                             <div class="enter-track center-track"><div id="center-bar"></div></div>
                         </div>
-                        <div id="center-list" class="center-list"></div>
+                        <div id="center-list" class="center-list hidden"></div>
                     </div>
                     <div class="center-pane hidden" id="center-pane-home" data-center-pane="home">
                         <div id="center-home-progress" class="center-progress hidden">
@@ -410,7 +425,17 @@
                         <div class="table-wrap">
                             <table class="data-table">
                                 <thead>
-                                <tr>
+                                <tr id="center-products-head-live" class="hidden">
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="name" data-sort-label="店铺">店铺</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="pay_amount" data-sort-label="成交金额">成交金额 ↓</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_amount" data-sort-label="退款金额">退款金额</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="show_user_count" data-sort-label="商品曝光人数">商品曝光人数</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="pay_user_count" data-sort-label="成交人数">成交人数</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="avg_pay" data-sort-label="客单价">客单价</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_order_count" data-sort-label="退款订单数">退款订单数</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="order_count" data-sort-label="成交订单数">成交订单数</button></th>
+                                </tr>
+                                <tr id="center-products-head-items">
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="product_name" data-sort-label="商品">商品</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="name" data-sort-label="店铺">店铺</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="pay_amount" data-sort-label="成交金额">成交金额 ↓</button></th>
@@ -612,7 +637,7 @@
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/compensates.js?v=3"></script>
 <script src="/static/js/dashboard/violations.js?v=19"></script>
-<script src="/static/js/dashboard/center.js?v=30"></script>
+<script src="/static/js/dashboard/center.js?v=40"></script>
 <script src="/static/js/dashboard/members.js?v=1"></script>
 </body>
 </html>

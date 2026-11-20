@@ -1034,6 +1034,61 @@ def _live_identity(info: dict) -> tuple[str, str]:
     return name, product_id
 
 
+_LIVE_SUM_CODES = ("pay_amt", "refund_amt", "product_show_ucnt", "pay_ucnt", "refund_cnt", "pay_cnt")
+_LIVE_SUMMARY_KEY = "product-live"
+
+
+def sum_live_cells(raw_rows: list[dict]) -> dict[str, float]:
+    """把一家店的实时商品加总。金额仍是分，客单价不在这里加。"""
+    totals = {code: 0.0 for code in _LIVE_SUM_CODES}
+    for raw in raw_rows:
+        info = raw.get("cell_info") if isinstance(raw, dict) else None
+        if not isinstance(info, dict):
+            continue
+        for code in _LIVE_SUM_CODES:
+            number, unit = _cell_number(_product_value(info, code).get("value"))
+            if number is None or unit == "6":
+                continue
+            totals[code] += number
+    return totals
+
+
+def _live_summary_row(shop: Shop, totals: dict[str, float] | None = None, error: str = "", partial: bool = False) -> dict:
+    numbers = totals or {code: 0.0 for code in _LIVE_SUM_CODES}
+    orders = numbers["pay_cnt"]
+    pay = numbers["pay_amt"]
+    row = {
+        "store_pk": shop.id,
+        "shop_id": shop.shop_id,
+        "name": shop.name,
+        "login_status": shop.login_status,
+        "sync_error": (error or "")[:200],
+        "product_id": "",
+        "product_name": "",
+        "pay_amount": "",
+        "order_count": "",
+        "refund_rate": "",
+        "refund_amount": "",
+        "good_rate": "",
+        "show_user_count": "",
+        "pay_user_count": "",
+        "avg_pay": "",
+        "refund_order_count": "",
+    }
+    if error:
+        return row
+    row["pay_amount"] = _money(pay / 100)
+    row["refund_amount"] = _money(numbers["refund_amt"] / 100)
+    row["show_user_count"] = str(int(numbers["product_show_ucnt"]))
+    row["pay_user_count"] = str(int(numbers["pay_ucnt"]))
+    row["refund_order_count"] = str(int(numbers["refund_cnt"]))
+    row["order_count"] = str(int(orders))
+    row["avg_pay"] = _money((pay / orders) / 100) if orders else "—"
+    if partial:
+        row["resume_page"] = 2
+    return row
+
+
 def _shape_live_row(info: dict) -> dict | None:
     name, product_id = _live_identity(info)
     row = {
@@ -1251,6 +1306,7 @@ def _remember_products(
         "end": end_day.isoformat() if end_day else "",
         "items": items,
         "note": note[:80],
+        "layout": "shops" if preset == "realtime" else "products",
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     _PRODUCT_CACHE[key] = payload
@@ -1274,8 +1330,107 @@ def _product_store_key(preset: str, start_day: date, end_day: date) -> str:
     return _span_key(preset, start_day, end_day)
 
 
+def _pull_live_summary(shop_id: int) -> list[dict]:
+    """一家店的实时商品汇总。走首页商品列表，不走近 1/7/30 天的商品列表。"""
+    db = SessionLocal()
+    shop: Shop | None = None
+    try:
+        shop = db.get(Shop, shop_id)
+        if shop is None:
+            return []
+        cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
+        if not cookies or shop.shop_cookie != 1:
+            return [_live_summary_row(shop, error="还没有这家店的登录凭证")]
+        try:
+            raw_rows, error = fetch_live_products(cookies, str(shop.shop_id or ""))
+        except ShopAuthError as exc:
+            return [_live_summary_row(shop, error=str(exc) or "登录已失效")]
+        except ShopApiError as exc:
+            return [_live_summary_row(shop, error=exc.message or "罗盘接口失败")]
+        finally:
+            keep_shop_jar(shop, cookies)
+            db.commit()
+        if error and not raw_rows:
+            return [_live_summary_row(shop, error=error)]
+        return [_live_summary_row(shop, sum_live_cells(raw_rows), partial=bool(error))]
+    except Exception:
+        _LOG.exception("拉取店铺 %s 实时商品汇总失败", shop_id)
+        if shop is None:
+            return [{"store_pk": shop_id, "name": "", "login_status": "", "sync_error": "暂时没拉到"}]
+        return [_live_summary_row(shop, error="暂时没拉到")]
+    finally:
+        db.close()
+
+
+def _refresh_live_job() -> None:
+    db = SessionLocal()
+    try:
+        shops = _shops(db)
+    finally:
+        db.close()
+    with _PRODUCT_PROGRESS:
+        _PRODUCT_PROGRESS_SLOT.update(running=True, done=0, total=len(shops), failed=0, message="")
+    by_shop: dict[int, list[dict]] = {}
+    seen: set[int] = set()
+    previous_items = list((_load_products(_LIVE_SUMMARY_KEY) or {}).get("items") or [])
+    shop_ids = prefer_limited([shop.id for shop in shops], limited_shop_ids(previous_items))
+    gate = threading.Lock()
+
+    def pull(shop_id: int) -> list[dict]:
+        rows = _pull_live_summary(shop_id)
+        with gate:
+            by_shop[shop_id] = rows
+            seen.add(shop_id)
+            with _PRODUCT_PROGRESS:
+                _PRODUCT_PROGRESS_SLOT["done"] = min(int(_PRODUCT_PROGRESS_SLOT["total"]), len(seen))
+        return rows
+
+    try:
+        if shops:
+            take_turns(shop_ids, pull)
+        items: list[dict] = []
+        failed = 0
+        for shop in shops:
+            rows = by_shop.get(shop.id) or []
+            items.extend(rows)
+            if any(row.get("sync_error") for row in rows):
+                failed += 1
+        today = date.today()
+        alive = {shop.id for shop in shops}
+        _remember_products(
+            _LIVE_SUMMARY_KEY,
+            "realtime",
+            1,
+            today,
+            today,
+            _only_current(merge_kept(previous_items, items), alive),
+        )
+        message = f"{len(shops) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")
+        with _PRODUCT_PROGRESS:
+            _PRODUCT_PROGRESS_SLOT.update(done=len(shops), failed=failed, message=message or "完成")
+    except Exception:
+        _LOG.exception("商品明细实时汇总失败")
+        with _PRODUCT_PROGRESS:
+            _PRODUCT_PROGRESS_SLOT.update(message="拉取过程出错了，请查看服务端日志")
+
+
 def read_products(db: Session, preset: str, start: str = "", end: str = "") -> dict:
     preset = (preset or "7").strip()
+    if preset == "realtime":
+        payload = _load_products(_LIVE_SUMMARY_KEY) or {}
+        today = date.today().isoformat()
+        data = {
+            "preset": "realtime",
+            "date_type": 1,
+            "start": today,
+            "end": today,
+            "updated_at": str(payload.get("updated_at") or ""),
+            "note": str(payload.get("note") or ""),
+            "layout": "shops",
+            "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
+        }
+        data.update(center_schedule())
+        return data
     if preset == "promotion":
         payload = _load_products("promotion:current") or {}
         date_type = int(payload.get("date_type") or 100)
@@ -1293,6 +1448,7 @@ def read_products(db: Session, preset: str, start: str = "", end: str = "") -> d
         "end": end_text,
         "updated_at": str(payload.get("updated_at") or ""),
         "note": str(payload.get("note") or ""),
+        "layout": "products",
         "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
     }
     data.update(center_schedule())
@@ -1402,36 +1558,42 @@ def _refresh_product_job(jobs: list[dict]) -> None:
 
 
 def _enqueue_product_job(jobs: list[dict]) -> dict:
-    global _PRODUCT_PENDING
     for job in jobs:
         resolve_span(str(job.get("preset") or ""), str(job.get("start") or ""), str(job.get("end") or ""))
+    return _enqueue_product_payload({"spans": jobs})
 
-    def run(current: dict) -> None:
-        global _PRODUCT_PENDING
-        try:
-            while current:
-                try:
+
+def _run_product_payload(current: dict) -> None:
+    global _PRODUCT_PENDING
+    try:
+        while current:
+            try:
+                if current.get("live"):
+                    _refresh_live_job()
+                else:
                     _refresh_product_job(list(current.get("spans") or []))
-                except Exception:
-                    _LOG.exception("商品明细更新失败")
-                    with _PRODUCT_PROGRESS:
-                        _PRODUCT_PROGRESS_SLOT.update(message="拉取过程出错了，请查看服务端日志")
+            except Exception:
+                _LOG.exception("商品明细更新失败")
                 with _PRODUCT_PROGRESS:
-                    current = _PRODUCT_PENDING
-                    _PRODUCT_PENDING = None
-                    if current:
-                        _PRODUCT_PROGRESS_SLOT.update(running=True, done=0, total=0, failed=0, message="")
-                        continue
-                    _PRODUCT_PROGRESS_SLOT["running"] = False
-                    _PRODUCT_JOB.release()
-                    return
-        except Exception:
-            _LOG.exception("商品明细更新失败")
+                    _PRODUCT_PROGRESS_SLOT.update(message="拉取过程出错了，请查看服务端日志")
             with _PRODUCT_PROGRESS:
-                _PRODUCT_PROGRESS_SLOT.update(running=False, message="拉取过程出错了，请查看服务端日志")
-            _PRODUCT_JOB.release()
+                current = _PRODUCT_PENDING
+                _PRODUCT_PENDING = None
+                if current:
+                    _PRODUCT_PROGRESS_SLOT.update(running=True, done=0, total=0, failed=0, message="")
+                    continue
+                _PRODUCT_PROGRESS_SLOT["running"] = False
+                _PRODUCT_JOB.release()
+                return
+    except Exception:
+        _LOG.exception("商品明细更新失败")
+        with _PRODUCT_PROGRESS:
+            _PRODUCT_PROGRESS_SLOT.update(running=False, message="拉取过程出错了，请查看服务端日志")
+        _PRODUCT_JOB.release()
 
-    payload = {"spans": jobs}
+
+def _enqueue_product_payload(payload: dict) -> dict:
+    global _PRODUCT_PENDING
     if not _PRODUCT_JOB.acquire(blocking=False):
         with _PRODUCT_PROGRESS:
             _PRODUCT_PENDING = payload
@@ -1444,16 +1606,23 @@ def _enqueue_product_job(jobs: list[dict]) -> dict:
         if not queued:
             _PRODUCT_JOB.release()
             return product_progress()
-        threading.Thread(target=run, args=(queued,), name="center-products", daemon=True).start()
+        threading.Thread(target=_run_product_payload, args=(queued,), name="center-products", daemon=True).start()
         return product_progress()
     with _PRODUCT_PROGRESS:
         _PRODUCT_PROGRESS_SLOT.update(running=True, done=0, total=0, failed=0, message="")
-    threading.Thread(target=run, args=(payload,), name="center-products", daemon=True).start()
+    threading.Thread(target=_run_product_payload, args=(payload,), name="center-products", daemon=True).start()
     return product_progress()
 
 
 def start_product_refresh(preset: str, start: str = "", end: str = "") -> dict:
+    if (preset or "").strip() == "realtime":
+        return _enqueue_live_job()
     return _enqueue_product_job([{"preset": preset, "start": start, "end": end}])
+
+
+def _enqueue_live_job() -> dict:
+    """实时汇总走首页商品列表。不把 realtime 塞进近 1/7/30 天那次商品列表。"""
+    return _enqueue_product_payload({"live": True})
 
 
 def start_product_defaults() -> dict:
@@ -1518,6 +1687,10 @@ def load_center_cache() -> None:
             _load_products(_span_key(preset, start_day, end_day))
         except Exception:
             _LOG.exception("读取商品明细缓存失败 %s", preset)
+    try:
+        _load_products(_LIVE_SUMMARY_KEY)
+    except Exception:
+        _LOG.exception("读取商品明细实时汇总失败")
     stored = fund_cache.read_obj("center_schedule")
     if isinstance(stored, dict):
         with _SCHEDULE_LOCK:
@@ -1534,13 +1707,15 @@ def _wait_idle(reader) -> None:
 
 
 def run_center_cycle() -> None:
-    """先更新店铺明细的四个固定时间，再更新商品明细的近 1 天、近 7 天、近 30 天，然后把下次时间写进 Redis。"""
+    """店铺明细四个时间，再更新商品明细近 1/7/30 天，最后用首页商品列表汇总实时。"""
     _COMPASS_TURN.acquire()
     try:
         for preset in ("realtime", "1", "7", "30"):
             start_shop_refresh(preset)
             _wait_idle(shop_progress)
         start_product_defaults()
+        _wait_idle(product_progress)
+        _enqueue_live_job()
         _wait_idle(product_progress)
         finished = datetime.now()
         nxt = finished + timedelta(minutes=_INTERVAL_MINUTES)

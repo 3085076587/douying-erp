@@ -1,9 +1,11 @@
 """数据总览：罗盘首页收支概况，每家店单独一份。"""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_section
 from app.db.session import get_db
+from app.schemas.deal import DealOverview
+from app.services.deal_overview import DealRangeError, list_deals
 from app.schemas.center import (
     CenterHomeList,
     LiveProductList,
@@ -31,6 +33,20 @@ from app.services.home_service import home_progress, read_home, start_home_refre
 from app.services.dy_client import ShopApiError, ShopAuthError
 
 router = APIRouter(prefix="/center", tags=["数据总览"])
+
+
+@router.get("/deals", response_model=DealOverview, summary="成交日表")
+def deals(
+    db: Session = Depends(get_db),
+    _user=Depends(require_section("center")),
+    start: str = Query(default="", max_length=10),
+    end: str = Query(default="", max_length=10),
+) -> DealOverview:
+    try:
+        data = list_deals(db, start, end)
+    except DealRangeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return DealOverview.model_validate(data)
 
 
 def _shop_error(exc: Exception):

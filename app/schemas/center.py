@@ -111,6 +111,10 @@ class CenterProductRow(BaseModel):
     refund_rate: str = ""
     refund_amount: str = ""
     good_rate: str = ""
+    show_user_count: str = ""
+    pay_user_count: str = ""
+    avg_pay: str = ""
+    refund_order_count: str = ""
 
 
 class LiveProductRow(BaseModel):

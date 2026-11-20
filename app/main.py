@@ -22,14 +22,12 @@ from app.services.center_service import (
     center_cache_fresh,
     center_schedule,
     load_center_cache,
-    overview_cache_fresh,
     run_center_cycle,
-    run_overview_cycle,
-    touch_daily,
 )
 from app.services.home_service import cache_fresh as home_cache_fresh
 from app.services.home_service import next_home_wait, refresh_home
 from app.services import compensate_service, invoice_service
+from app.services.deal_sync import ensure_deal_table, sync_yesterday
 from app.services.account_service import live_cache_fresh, refresh_saved_accounts
 from app.services.store_service import (
     ensure_credential_at_column,
@@ -223,6 +221,25 @@ def _seconds_until_clock(hour: int, minute: int) -> float:
     return max(5.0, (target - now).total_seconds())
 
 
+async def _deal_day_loop() -> None:
+    """成交日：每天 00:01 拉昨天。页面要的指标里，已经对上的才会入库。"""
+    logger.info("成交日已启动，每天 00:01 拉昨天")
+    write_start("成交日，每天 00:01 拉昨天")
+    while True:
+        try:
+            await asyncio.sleep(_seconds_until_clock(0, 1))
+            write_start("成交日")
+            message = await asyncio.to_thread(sync_yesterday)
+            write_success(f"成交日 {message}")
+            logger.info("成交日 %s", message)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("成交日更新失败")
+            write_fail("成交日")
+            await asyncio.sleep(60)
+
+
 async def _compensate_loop() -> None:
     """账单赔付：第一次把全部历史补进库，之后每天 00:01 拉昨天。页面默认仍看近 30 天。"""
     logger.info("账单赔付已启动，第一次补全部历史，之后每天 00:01 拉昨天")
@@ -301,44 +318,42 @@ async def _invoice_once() -> None:
 
 
 async def _home_loop() -> None:
-    """数据总览和店铺首页：启动后先预热，之后每天 0 点和 12 点写入 Redis。10 分钟内已有数据则跳过这次预热。"""
-    logger.info("数据总览、店铺首页已启动，25秒后预热，之后每天 0 点和 12 点写入 Redis")
-    write_start("数据总览、店铺首页，25秒后预热，之后每天 0 点和 12 点")
-    home_ok = home_cache_fresh()
-    overview_ok = overview_cache_fresh()
-    if home_ok and overview_ok:
-        write_success("数据总览、店铺首页 10分钟内已有数据，启动预热跳过")
-        logger.info("数据总览、店铺首页 10分钟内已有数据，启动预热跳过")
+    """店铺首页：启动后先预热，之后每天 0 点和 12 点写入 Redis。10 分钟内已有数据则跳过这次预热。"""
+    logger.info("店铺首页已启动，25秒后预热，之后每天 0 点和 12 点写入 Redis")
+    write_start("店铺首页，25秒后预热，之后每天 0 点和 12 点")
+    if home_cache_fresh():
+        write_success("店铺首页 10分钟内已有数据，启动预热跳过")
+        logger.info("店铺首页 10分钟内已有数据，启动预热跳过")
     else:
         await asyncio.sleep(25)
         try:
-            write_start("数据总览、店铺首页")
-            detail = await asyncio.to_thread(_run_daily, not home_ok, not overview_ok)
+            write_start("店铺首页")
+            detail = await asyncio.to_thread(_run_daily, True, False)
             if detail:
-                write_fail("数据总览、店铺首页", detail)
+                write_fail("店铺首页", detail)
             else:
-                write_success("数据总览、店铺首页已写入 Redis")
+                write_success("店铺首页已写入 Redis")
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("数据总览、店铺首页更新失败")
-            write_fail("数据总览、店铺首页")
+            logger.exception("店铺首页更新失败")
+            write_fail("店铺首页")
     while True:
         try:
             nxt = _next_daily_text()
-            logger.info("数据总览、店铺首页下次更新 %s", nxt)
+            logger.info("店铺首页下次更新 %s", nxt)
             await asyncio.sleep(next_home_wait())
-            write_start("数据总览、店铺首页")
-            detail = await asyncio.to_thread(_run_daily)
+            write_start("店铺首页")
+            detail = await asyncio.to_thread(_run_daily, True, False)
             if detail:
-                write_fail("数据总览、店铺首页", detail)
+                write_fail("店铺首页", detail)
             else:
-                write_success("数据总览、店铺首页已写入 Redis")
+                write_success("店铺首页已写入 Redis")
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("数据总览、店铺首页更新失败")
-            write_fail("数据总览、店铺首页")
+            logger.exception("店铺首页更新失败")
+            write_fail("店铺首页")
             await asyncio.sleep(60)
 
 
@@ -347,6 +362,7 @@ async def lifespan(_: FastAPI):
     settings = get_settings()
     try:
         Base.metadata.create_all(bind=engine)
+        ensure_deal_table()
         ensure_shop_cookie_column()
         ensure_owner_account_column()
         ensure_credential_at_column()
@@ -371,6 +387,7 @@ async def lifespan(_: FastAPI):
     home_task = asyncio.create_task(_home_loop())
     invoice_task = asyncio.create_task(_invoice_loop())
     compensate_task = asyncio.create_task(_compensate_loop())
+    deal_task = asyncio.create_task(_deal_day_loop())
     logger.info("%s 已启动，环境：%s", settings.app_name, settings.app_env)
     try:
         yield
@@ -382,6 +399,7 @@ async def lifespan(_: FastAPI):
         home_task.cancel()
         invoice_task.cancel()
         compensate_task.cancel()
+        deal_task.cancel()
         logger.info("%s 已关闭", settings.app_name)
 
 
