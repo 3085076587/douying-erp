@@ -538,12 +538,10 @@ def _collect_products(
 _LIVE_PRODUCT_INDEXES = ",".join(
     (
         "pay_amt",
-        "refund_amt",
-        "product_show_ucnt",
-        "pay_ucnt",
-        "per_customer_transaction",
-        "refund_cnt",
         "pay_cnt",
+        "refund_amt",
+        "net_trans_amt",
+        "net_pay_cnt",
     )
 )
 _LIVE_PAGE_SIZE = 10
@@ -551,7 +549,7 @@ _LIVE_PAGE_CAP = 20
 
 
 def fetch_live_products(cookies: dict[str, str], shop_id: str) -> tuple[list[dict], str]:
-    """店铺首页「看商品」的实时商品。只取这一次，调用方不要写缓存。"""
+    """商品列表实时。接口是首页商品列表，指标放在 index_list。只取这一次，调用方不要写缓存。"""
     _enter_compass(cookies, shop_id)
     try:
         return _collect_live_products(cookies)
@@ -611,18 +609,21 @@ def _live_page(cookies: dict[str, str], page_no: int) -> dict:
                     "begin_date": today,
                     "end_date": today,
                     "activity_id": "",
+                    "is_activity": "false",
                     "product_rank_type": "shop_all_product",
                     "sort_field": "pay_amt",
                     "is_asc": "false",
                     "page_no": str(page_no),
                     "page_size": str(_LIVE_PAGE_SIZE),
+                    "query_condition": "",
                     "index_list": _LIVE_PRODUCT_INDEXES,
                 },
                 cookies=_cookies(cookies),
                 headers={
                     "User-Agent": _UA,
-                    "Referer": f"{_HOST}/shop?dateType=1",
+                    "Referer": f"{_HOST}/shop/commodity/product-list",
                     "Accept": "application/json, text/plain, */*",
+                    "agw-js-conv": "str",
                 },
                 timeout=30,
                 follow_redirects=False,

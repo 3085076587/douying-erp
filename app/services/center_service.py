@@ -1006,12 +1006,11 @@ def _product_row(shop: Shop, info: dict | None = None, error: str = "") -> dict:
 
 _LIVE_FIELDS = (
     ("pay_amount", "money", "pay_amt"),
-    ("refund_amount", "money", "refund_amt"),
-    ("show_user_count", "count", "product_show_ucnt"),
-    ("pay_user_count", "count", "pay_ucnt"),
-    ("avg_pay", "money", "per_customer_transaction"),
-    ("refund_order_count", "count", "refund_cnt"),
     ("order_count", "count", "pay_cnt"),
+    ("refund_amount", "money", "refund_amt"),
+    ("net_pay_amount", "money", "net_trans_amt"),
+    ("net_order_count", "count", "net_pay_cnt"),
+    ("refund_rate", "rate", "pay_refund_ratio"),
 )
 
 
@@ -1034,12 +1033,12 @@ def _live_identity(info: dict) -> tuple[str, str]:
     return name, product_id
 
 
-_LIVE_SUM_CODES = ("pay_amt", "refund_amt", "product_show_ucnt", "pay_ucnt", "refund_cnt", "pay_cnt")
+_LIVE_SUM_CODES = ("pay_amt", "pay_cnt", "refund_amt", "pay_amt_exclude_refund", "net_pay_cnt")
 _LIVE_SUMMARY_KEY = "product-live"
 
 
 def sum_live_cells(raw_rows: list[dict]) -> dict[str, float]:
-    """把一家店的实时商品加总。金额仍是分，客单价不在这里加。"""
+    """把一家店的实时商品加总。金额仍是分，退款率用退款金额除以成交金额。"""
     totals = {code: 0.0 for code in _LIVE_SUM_CODES}
     for raw in raw_rows:
         info = raw.get("cell_info") if isinstance(raw, dict) else None
@@ -1055,8 +1054,8 @@ def sum_live_cells(raw_rows: list[dict]) -> dict[str, float]:
 
 def _live_summary_row(shop: Shop, totals: dict[str, float] | None = None, error: str = "", partial: bool = False) -> dict:
     numbers = totals or {code: 0.0 for code in _LIVE_SUM_CODES}
-    orders = numbers["pay_cnt"]
-    pay = numbers["pay_amt"]
+    pay = numbers.get("pay_amt") or 0
+    refund = numbers.get("refund_amt") or 0
     row = {
         "store_pk": shop.id,
         "shop_id": shop.shop_id,
@@ -1069,21 +1068,18 @@ def _live_summary_row(shop: Shop, totals: dict[str, float] | None = None, error:
         "order_count": "",
         "refund_rate": "",
         "refund_amount": "",
+        "net_pay_amount": "",
+        "net_order_count": "",
         "good_rate": "",
-        "show_user_count": "",
-        "pay_user_count": "",
-        "avg_pay": "",
-        "refund_order_count": "",
     }
     if error:
         return row
     row["pay_amount"] = _money(pay / 100)
-    row["refund_amount"] = _money(numbers["refund_amt"] / 100)
-    row["show_user_count"] = str(int(numbers["product_show_ucnt"]))
-    row["pay_user_count"] = str(int(numbers["pay_ucnt"]))
-    row["refund_order_count"] = str(int(numbers["refund_cnt"]))
-    row["order_count"] = str(int(orders))
-    row["avg_pay"] = _money((pay / orders) / 100) if orders else "—"
+    row["order_count"] = str(int(numbers.get("pay_cnt") or 0))
+    row["refund_amount"] = _money(refund / 100)
+    row["net_pay_amount"] = _money((numbers.get("pay_amt_exclude_refund") or 0) / 100)
+    row["net_order_count"] = str(int(numbers.get("net_pay_cnt") or 0))
+    row["refund_rate"] = _operating_text("rate", {"value": refund / pay, "unit": "4"}, empty="—") if pay else "—"
     if partial:
         row["resume_page"] = 2
     return row
@@ -1101,9 +1097,25 @@ def _shape_live_row(info: dict) -> dict | None:
         row["product_name"] = "商品"
     for field, kind, code in _LIVE_FIELDS:
         values = _product_value(info, code)
-        empty = "0" if kind == "count" else "—"
-        row[field] = _operating_text(kind, values.get("value"), empty=empty)
+        row[field] = _operating_text(kind, values.get("value"), empty="—")
+    pay = _live_number(info, "pay_amt")
+    refund = _live_number(info, "refund_amt")
+    orders = _live_number(info, "pay_cnt")
+    refund_orders = _live_number(info, "refund_cnt")
+    if row["net_pay_amount"] == "—" and pay is not None and refund is not None:
+        row["net_pay_amount"] = _money((pay - refund) / 100)
+    if row["net_order_count"] == "—" and orders is not None and refund_orders is not None:
+        row["net_order_count"] = str(int(orders - refund_orders))
+    if row["refund_rate"] == "—" and pay:
+        row["refund_rate"] = _operating_text("rate", {"value": (refund or 0) / pay, "unit": "4"}, empty="—")
     return row
+
+
+def _live_number(info: dict, code: str) -> float | None:
+    number, unit = _cell_number(_product_value(info, code).get("value"))
+    if number is None or unit == "6":
+        return None
+    return number
 
 
 def read_live_products(db: Session, store_pk: int) -> dict:
@@ -1306,7 +1318,7 @@ def _remember_products(
         "end": end_day.isoformat() if end_day else "",
         "items": items,
         "note": note[:80],
-        "layout": "shops" if preset == "realtime" else "products",
+        "layout": "products",
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     _PRODUCT_CACHE[key] = payload
@@ -1330,8 +1342,32 @@ def _product_store_key(preset: str, start_day: date, end_day: date) -> str:
     return _span_key(preset, start_day, end_day)
 
 
+def _live_catalog_row(shop: Shop, info: dict | None = None, error: str = "") -> dict:
+    shaped = _shape_live_row(info) if isinstance(info, dict) else None
+    row = {
+        "store_pk": shop.id,
+        "shop_id": shop.shop_id,
+        "name": shop.name,
+        "login_status": shop.login_status,
+        "sync_error": (error or "")[:200],
+        "product_id": "",
+        "product_name": "",
+        "pay_amount": "",
+        "order_count": "",
+        "refund_rate": "",
+        "refund_amount": "",
+        "net_pay_amount": "",
+        "net_order_count": "",
+        "good_rate": "",
+    }
+    if not shaped:
+        return row
+    row.update(shaped)
+    return row
+
+
 def _pull_live_summary(shop_id: int) -> list[dict]:
-    """一家店的实时商品汇总。走首页商品列表，不走近 1/7/30 天的商品列表。"""
+    """一家店的实时商品，一行一个商品。走首页商品列表，不走近 1/7/30 天。"""
     db = SessionLocal()
     shop: Shop | None = None
     try:
@@ -1340,26 +1376,79 @@ def _pull_live_summary(shop_id: int) -> list[dict]:
             return []
         cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
         if not cookies or shop.shop_cookie != 1:
-            return [_live_summary_row(shop, error="还没有这家店的登录凭证")]
+            return [_live_catalog_row(shop, error="还没有这家店的登录凭证")]
         try:
             raw_rows, error = fetch_live_products(cookies, str(shop.shop_id or ""))
         except ShopAuthError as exc:
-            return [_live_summary_row(shop, error=str(exc) or "登录已失效")]
+            return [_live_catalog_row(shop, error=str(exc) or "登录已失效")]
         except ShopApiError as exc:
-            return [_live_summary_row(shop, error=exc.message or "罗盘接口失败")]
+            return [_live_catalog_row(shop, error=exc.message or "罗盘接口失败")]
         finally:
             keep_shop_jar(shop, cookies)
             db.commit()
-        if error and not raw_rows:
-            return [_live_summary_row(shop, error=error)]
-        return [_live_summary_row(shop, sum_live_cells(raw_rows), partial=bool(error))]
+        items: list[dict] = []
+        for raw in raw_rows:
+            info = raw.get("cell_info") if isinstance(raw, dict) else None
+            if not isinstance(info, dict):
+                continue
+            shaped = _live_catalog_row(shop, info)
+            if shaped.get("product_id") or shaped.get("product_name"):
+                items.append(shaped)
+        if error and not items:
+            return [_live_catalog_row(shop, error=error)]
+        if error and items:
+            marker = _live_catalog_row(shop, error=error)
+            marker["resume_page"] = 2
+            items.append(marker)
+        return items
     except Exception:
-        _LOG.exception("拉取店铺 %s 实时商品汇总失败", shop_id)
+        _LOG.exception("拉取店铺 %s 实时商品失败", shop_id)
         if shop is None:
             return [{"store_pk": shop_id, "name": "", "login_status": "", "sync_error": "暂时没拉到"}]
-        return [_live_summary_row(shop, error="暂时没拉到")]
+        return [_live_catalog_row(shop, error="暂时没拉到")]
     finally:
         db.close()
+
+
+def _live_product_row(row: dict) -> bool:
+    return bool(row.get("product_id") or row.get("product_name"))
+
+
+def _merge_live_catalog(previous: list, fresh_by_shop: dict[int, list[dict]], shops: list[Shop]) -> list[dict]:
+    """拉过的店用这一轮的商品替换。没拉到商品就不再留上一轮的店铺汇总。"""
+    old: dict[int, list[dict]] = {}
+    for row in previous:
+        if not isinstance(row, dict):
+            continue
+        try:
+            pk = int(row.get("store_pk") or 0)
+        except (TypeError, ValueError):
+            continue
+        if pk and _live_product_row(row):
+            old.setdefault(pk, []).append(row)
+    merged: list[dict] = []
+    for shop in shops:
+        fresh = fresh_by_shop.get(shop.id)
+        previous_rows = old.get(shop.id) or []
+        if fresh is None:
+            merged.extend(previous_rows)
+            continue
+        limited = bool(fresh) and all(
+            "频繁" in str(row.get("sync_error") or "")
+            or "暂时连不上" in str(row.get("sync_error") or "")
+            or "服务器错误" in str(row.get("sync_error") or "")
+            for row in fresh
+        )
+        partial = any(int(row.get("resume_page") or 0) > 1 for row in fresh)
+        if (limited or partial) and previous_rows:
+            merged.extend(previous_rows)
+            continue
+        products = [row for row in fresh if _live_product_row(row)]
+        if products:
+            merged.extend(products)
+            continue
+        merged.extend(row for row in fresh if row.get("sync_error"))
+    return merged
 
 
 def _refresh_live_job() -> None:
@@ -1388,11 +1477,9 @@ def _refresh_live_job() -> None:
     try:
         if shops:
             take_turns(shop_ids, pull)
-        items: list[dict] = []
         failed = 0
         for shop in shops:
             rows = by_shop.get(shop.id) or []
-            items.extend(rows)
             if any(row.get("sync_error") for row in rows):
                 failed += 1
         today = date.today()
@@ -1403,13 +1490,13 @@ def _refresh_live_job() -> None:
             1,
             today,
             today,
-            _only_current(merge_kept(previous_items, items), alive),
+            _only_current(_merge_live_catalog(previous_items, by_shop, shops), alive),
         )
         message = f"{len(shops) - failed} 家完成" + (f"，{failed} 家失败" if failed else "")
         with _PRODUCT_PROGRESS:
             _PRODUCT_PROGRESS_SLOT.update(done=len(shops), failed=failed, message=message or "完成")
     except Exception:
-        _LOG.exception("商品明细实时汇总失败")
+        _LOG.exception("商品明细实时拉取失败")
         with _PRODUCT_PROGRESS:
             _PRODUCT_PROGRESS_SLOT.update(message="拉取过程出错了，请查看服务端日志")
 
@@ -1426,7 +1513,7 @@ def read_products(db: Session, preset: str, start: str = "", end: str = "") -> d
             "end": today,
             "updated_at": str(payload.get("updated_at") or ""),
             "note": str(payload.get("note") or ""),
-            "layout": "shops",
+            "layout": "products",
             "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
         }
         data.update(center_schedule())
@@ -1621,7 +1708,7 @@ def start_product_refresh(preset: str, start: str = "", end: str = "") -> dict:
 
 
 def _enqueue_live_job() -> dict:
-    """实时汇总走首页商品列表。不把 realtime 塞进近 1/7/30 天那次商品列表。"""
+    """实时商品走首页商品列表，一行一个商品。不把 realtime 塞进近 1/7/30 天那次商品列表。"""
     return _enqueue_product_payload({"live": True})
 
 
@@ -1690,7 +1777,7 @@ def load_center_cache() -> None:
     try:
         _load_products(_LIVE_SUMMARY_KEY)
     except Exception:
-        _LOG.exception("读取商品明细实时汇总失败")
+        _LOG.exception("读取商品明细实时缓存失败")
     stored = fund_cache.read_obj("center_schedule")
     if isinstance(stored, dict):
         with _SCHEDULE_LOCK:
@@ -1707,7 +1794,7 @@ def _wait_idle(reader) -> None:
 
 
 def run_center_cycle() -> None:
-    """店铺明细四个时间，再更新商品明细近 1/7/30 天，最后用首页商品列表汇总实时。"""
+    """店铺明细四个时间，再更新商品明细近 1/7/30 天，最后用首页商品列表拉实时商品。"""
     _COMPASS_TURN.acquire()
     try:
         for preset in ("realtime", "1", "7", "30"):

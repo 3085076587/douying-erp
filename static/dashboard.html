@@ -426,14 +426,14 @@
                             <table class="data-table">
                                 <thead>
                                 <tr id="center-products-head-live" class="hidden">
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="product_name" data-sort-label="商品">商品</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="name" data-sort-label="店铺">店铺</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="pay_amount" data-sort-label="成交金额">成交金额 ↓</button></th>
-                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_amount" data-sort-label="退款金额">退款金额</button></th>
-                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="show_user_count" data-sort-label="商品曝光人数">商品曝光人数</button></th>
-                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="pay_user_count" data-sort-label="成交人数">成交人数</button></th>
-                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="avg_pay" data-sort-label="客单价">客单价</button></th>
-                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_order_count" data-sort-label="退款订单数">退款订单数</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="order_count" data-sort-label="成交订单数">成交订单数</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_amount" data-sort-label="退款金额">退款金额</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="net_pay_amount" data-sort-label="净成交金额">净成交金额</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="net_order_count" data-sort-label="净成交订单">净成交订单</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_rate" data-sort-label="退款率">退款率</button></th>
                                 </tr>
                                 <tr id="center-products-head-items">
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="product_name" data-sort-label="商品">商品</button></th>
@@ -593,17 +593,16 @@
                 <thead>
                 <tr>
                     <th>商品</th>
-                    <th>用户支付金额</th>
-                    <th>退款金额</th>
-                    <th>商品曝光人数</th>
-                    <th>成交人数</th>
-                    <th>客单价</th>
-                    <th>退款订单数</th>
+                    <th>成交金额</th>
                     <th>成交订单数</th>
+                    <th>退款金额</th>
+                    <th>净成交金额</th>
+                    <th>净成交订单</th>
+                    <th>退款率</th>
                 </tr>
                 </thead>
                 <tbody id="live-tbody">
-                <tr><td colspan="8" class="empty">正在获取…</td></tr>
+                <tr><td colspan="7" class="empty">正在获取…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -637,7 +636,7 @@
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/compensates.js?v=3"></script>
 <script src="/static/js/dashboard/violations.js?v=19"></script>
-<script src="/static/js/dashboard/center.js?v=40"></script>
+<script src="/static/js/dashboard/center.js?v=45"></script>
 <script src="/static/js/dashboard/members.js?v=1"></script>
 </body>
 </html>

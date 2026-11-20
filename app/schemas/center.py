@@ -110,6 +110,8 @@ class CenterProductRow(BaseModel):
     order_count: str = ""
     refund_rate: str = ""
     refund_amount: str = ""
+    net_pay_amount: str = ""
+    net_order_count: str = ""
     good_rate: str = ""
     show_user_count: str = ""
     pay_user_count: str = ""
@@ -121,12 +123,11 @@ class LiveProductRow(BaseModel):
     product_id: str = ""
     product_name: str = ""
     pay_amount: str = ""
-    refund_amount: str = ""
-    show_user_count: str = ""
-    pay_user_count: str = ""
-    avg_pay: str = ""
-    refund_order_count: str = ""
     order_count: str = ""
+    refund_amount: str = ""
+    net_pay_amount: str = ""
+    net_order_count: str = ""
+    refund_rate: str = ""
 
 
 class LiveProductList(BaseModel):

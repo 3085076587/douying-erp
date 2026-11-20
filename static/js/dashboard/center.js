@@ -87,7 +87,7 @@
         var note = el("center-range-note");
         if (!note) return;
         if (tab === "products") {
-            note.textContent = "实时是各店首页商品明细的汇总。近1天、近7天、近30天是另一套商品列表。自定义选开始和结束，最多 90 天。";
+            note.textContent = "实时是首页商品列表今天的商品。近1天、近7天、近30天是另一套商品列表。自定义选开始和结束，最多 90 天。";
             return;
         }
         note.textContent = "默认实时。近 1 天、近 7 天、近 30 天截止到昨天。自定义只能选今天和前 90 天。";
@@ -191,7 +191,7 @@
 
     function productEmptyText(data) {
         if (data && data.note) return data.note;
-        if (productIsLive(data)) return data && data.updated_at ? "还没有可汇总的商品" : "实时汇总还没有，点查询拉取";
+        if (productIsLive(data)) return data && data.updated_at ? "今天还没有商品" : "实时商品还没有，点查询拉取";
         if (data && data.updated_at) return "这个时间没有商品";
         return "这个时间还没有缓存，点查询拉取";
     }
@@ -203,7 +203,7 @@
         var current = scheduleState;
         var text = "";
         if (tab === "products" && current && current.next_update && preset() === "realtime") {
-            text = "实时每" + (current.interval_minutes || 10) + "分钟按各店商品明细汇总，下次更新 " + current.next_update;
+            text = "实时每" + (current.interval_minutes || 10) + "分钟更新各店商品，下次更新 " + current.next_update;
         } else if (tab === "products" && current && current.next_update) {
             text = "每" + (current.interval_minutes || 10) + "分钟更新近1天、近7天、近30天，下次更新 " + current.next_update;
         } else if (tab === "shops" && current && current.next_update) {
@@ -305,14 +305,13 @@
         if (!keyword) return items;
         var live = productIsLive(productData);
         return items.filter(function (item) {
-            if (live) {
-                var shopName = String(item.name || "").toLowerCase();
-                var shopId = String(item.shop_id || "").toLowerCase();
-                return shopName.indexOf(keyword) >= 0 || shopId.indexOf(keyword) >= 0;
-            }
             var name = String(item.product_name || "").toLowerCase();
             var id = String(item.product_id || "").toLowerCase();
-            return name.indexOf(keyword) >= 0 || id.indexOf(keyword) >= 0;
+            if (name.indexOf(keyword) >= 0 || id.indexOf(keyword) >= 0) return true;
+            if (!live) return false;
+            var shopName = String(item.name || "").toLowerCase();
+            var shopId = String(item.shop_id || "").toLowerCase();
+            return shopName.indexOf(keyword) >= 0 || shopId.indexOf(keyword) >= 0;
         });
     }
 
@@ -635,7 +634,7 @@
         var items = (data && data.items) || [];
         var note = el("live-note");
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="8" class="empty">'
+            body.innerHTML = '<tr><td colspan="7" class="empty">'
                 + Dash.escapeHtml((data && data.error) || "这家店现在没有商品数据") + "</td></tr>";
             note.textContent = "";
             return;
@@ -645,12 +644,11 @@
             return "<tr><td><div class=\"center-product-name\">" + Dash.escapeHtml(item.product_name || "未命名商品")
                 + "</div><div class=\"center-home-id\">" + Dash.escapeHtml(item.product_id || "") + "</div></td>"
                 + "<td>" + Dash.escapeHtml(item.pay_amount || "—") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.order_count || "0") + "</td>"
                 + "<td>" + Dash.escapeHtml(item.refund_amount || "—") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.show_user_count || "0") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.pay_user_count || "0") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.avg_pay || "—") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.refund_order_count || "0") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.order_count || "0") + "</td></tr>";
+                + "<td>" + Dash.escapeHtml(item.net_pay_amount || "—") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.net_order_count || "0") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.refund_rate || "—") + "</td></tr>";
         }).join("");
     }
 
@@ -662,7 +660,7 @@
         var mask = el("live-mask");
         el("live-title").textContent = (shopName || "店铺") + " 商品实时";
         el("live-note").textContent = "正在获取实时商品…";
-        el("live-tbody").innerHTML = '<tr><td colspan="8" class="empty">正在获取…</td></tr>';
+        el("live-tbody").innerHTML = '<tr><td colspan="7" class="empty">正在获取…</td></tr>';
         mask.classList.remove("hidden");
         Dash.request("/center/shops/" + storePk + "/live-products").then(function (data) {
             if (mask.classList.contains("hidden")) return;
@@ -670,7 +668,7 @@
         }).catch(function (err) {
             if (mask.classList.contains("hidden")) return;
             el("live-note").textContent = "";
-            el("live-tbody").innerHTML = '<tr><td colspan="8" class="empty">'
+            el("live-tbody").innerHTML = '<tr><td colspan="7" class="empty">'
                 + Dash.escapeHtml(err.message || "获取失败") + "</td></tr>";
         });
     }
@@ -759,16 +757,20 @@
                 ["待整改风险点", formatCount(sumField(items || [], "risk_point"))],
                 ["待处理违规", formatCount(sumField(items || [], "pending_violation"))]
             ];
-        } else if (tab === "shops" || tab === "products") {
         } else if (tab === "products" && productIsLive(productData)) {
             var pay = sumField(items || [], "pay_amount");
-            var orders = sumField(items || [], "order_count");
+            var refund = sumField(items || [], "refund_amount");
+            var rate = pay ? (refund / pay) * 100 : 0;
+            var rateText = !pay ? "—" : (Math.abs(rate - Math.round(rate)) < 0.05 ? Math.round(rate) + "%" : rate.toFixed(2) + "%");
             fields = [
                 ["成交金额", formatMoney(pay)],
-                ["成交订单数", formatCount(orders)],
-                ["退款金额", formatMoney(sumField(items || [], "refund_amount"))],
-                ["客单价", orders ? formatMoney(pay / orders) : "—"]
+                ["成交订单数", formatCount(sumField(items || [], "order_count"))],
+                ["退款金额", formatMoney(refund)],
+                ["净成交金额", formatMoney(sumField(items || [], "net_pay_amount"))],
+                ["净成交订单", formatCount(sumField(items || [], "net_order_count"))],
+                ["退款率", rateText]
             ];
+        } else if (tab === "shops" || tab === "products") {
             fields = [
                 ["成交金额", formatMoney(sumField(items || [], "pay_amount"))],
                 ["成交订单数", formatCount(sumField(items || [], "order_count"))],
@@ -927,7 +929,7 @@
         if (itemHead) itemHead.classList.toggle("hidden", live);
         if (liveHead) liveHead.classList.toggle("hidden", !live);
         var search = el("center-product-q");
-        if (search) search.placeholder = live ? "店铺名称" : "商品名称或ID";
+        if (search) search.placeholder = live ? "商品名称、ID或店铺" : "商品名称或ID";
         var body = el("center-products-tbody");
         var span = live ? 8 : 7;
         var scoped = visibleItems(productData.items || []);
@@ -943,27 +945,38 @@
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="' + span + '" class="empty">' + (live ? "没有符合搜索的店铺" : "没有符合搜索的商品") + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="' + span + '" class="empty">没有符合搜索的商品</td></tr>';
             return;
         }
         if (live) {
+            var stale = (productData.items || []).every(function (item) {
+                return !item.product_id && !item.product_name && !item.sync_error;
+            });
+            if (stale) {
+                body.innerHTML = '<tr><td colspan="' + span + '" class="empty">当前缓存还是店铺汇总，点查询重新拉取商品</td></tr>';
+                return;
+            }
             body.innerHTML = items.map(function (item) {
+                var product = '<td class="center-product-name">' + Dash.escapeHtml(item.product_name || "—");
+                if (item.product_id) {
+                    product += '<div class="center-home-id">ID ' + Dash.escapeHtml(item.product_id) + "</div>";
+                }
+                product += "</td>";
                 var shop = "<td>" + Dash.escapeHtml(item.name || "未命名店铺")
                     + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
                 if (item.sync_error) {
-                    var errorText = item.sync_error.indexOf("频繁") >= 0 ? "暂无商品数据" : item.sync_error;
-                    return "<tr>" + shop + '<td colspan="7" class="center-error">' + Dash.escapeHtml(errorText) + "</td></tr>";
+                    return "<tr>" + product + shop + '<td colspan="6" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
                 }
-                return "<tr>" + shop
+                return "<tr>" + product + shop
                     + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.pay_amount || "—") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_amount || "—") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.show_user_count || "0") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.pay_user_count || "0") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.avg_pay || "—") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_order_count || "0") + "</div></td>"
                     + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.order_count || "0") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_amount || "—") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.net_pay_amount || "—") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.net_order_count || "0") + "</div></td>"
+                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_rate || "—") + "</div></td>"
                     + "</tr>";
             }).join("");
+            return;
         }
         body.innerHTML = items.map(function (item) {
             var product = '<td class="center-product-name">' + Dash.escapeHtml(item.product_name || "—");
@@ -1004,7 +1017,7 @@
         var done = state.done || 0;
         el("center-products-bar").style.width = (total ? Math.round(done / total * 100) : 8) + "%";
         el("center-products-progress-text").textContent = total
-            ? ((preset() === "realtime" ? "正在汇总各店实时商品 " : "正在拉取商品明细 ") + done + " / " + total + " 家")
+            ? ((preset() === "realtime" ? "正在拉取实时商品 " : "正在拉取商品明细 ") + done + " / " + total + " 家")
             : "正在拉取…";
     }
 
