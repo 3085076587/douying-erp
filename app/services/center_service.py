@@ -7,10 +7,11 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
+from app.models.product_day import DyProductDay
 from app.models.shop import Shop
 from app.services import fund_cache
 from app.services.dy_client import FXG_HOST, ShopApiError, ShopAuthError, cookie_store, cookies_for
@@ -1598,20 +1599,129 @@ def read_products(db: Session, preset: str, start: str = "", end: str = "") -> d
         date_type = int(payload.get("date_type") or 100)
         start_text = str(payload.get("start") or "")
         end_text = str(payload.get("end") or "")
-    else:
-        date_type, start_day, end_day = resolve_span(preset, start, end)
-        payload = _load_products(_span_key(preset, start_day, end_day)) or {}
-        start_text = start_day.isoformat()
-        end_text = end_day.isoformat()
+        data = {
+            "preset": preset,
+            "date_type": date_type,
+            "start": start_text,
+            "end": end_text,
+            "updated_at": str(payload.get("updated_at") or ""),
+            "note": str(payload.get("note") or ""),
+            "layout": "products",
+            "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
+        }
+        data.update(center_schedule())
+        return data
+    return _read_product_days(db, preset, start, end)
+
+
+def _percent_points(percent: float) -> str:
+    if abs(percent - round(percent)) < 0.05:
+        return f"{percent:.0f}%"
+    return f"{percent:.2f}%"
+
+
+def _stored_percent(stored: object) -> str:
+    try:
+        points = int(stored)
+    except (TypeError, ValueError):
+        return "—"
+    if points < 0:
+        return "—"
+    return _percent_points(points / 100)
+
+
+def _refund_percent(pay_fen: int, refund_fen: int, stored: object, single_day: bool) -> str:
+    if pay_fen > 0:
+        return _percent_points(refund_fen * 100 / pay_fen)
+    if single_day:
+        return _stored_percent(stored)
+    return "—"
+
+
+def _read_product_days(db: Session, preset: str, start: str, end: str) -> dict:
+    """近 1 天、近 7 天、近 30 天、自定义以及自然日/周/月，都按已入库的自然日加总。"""
+    date_type, start_day, end_day = resolve_span(preset, start, end)
+    shops = {shop.id: shop for shop in _shops(db)}
+    totals = (
+        select(
+            DyProductDay.store_pk.label("store_pk"),
+            DyProductDay.product_id.label("product_id"),
+            func.sum(DyProductDay.pay_amount).label("pay_amount"),
+            func.sum(DyProductDay.order_count).label("order_count"),
+            func.sum(DyProductDay.refund_amount).label("refund_amount"),
+            func.max(DyProductDay.stat_date).label("stat_date"),
+            func.max(DyProductDay.updated_at).label("updated_at"),
+        )
+        .where(DyProductDay.stat_date >= start_day, DyProductDay.stat_date <= end_day)
+        .group_by(DyProductDay.store_pk, DyProductDay.product_id)
+        .subquery()
+    )
+    stmt = (
+        select(
+            DyProductDay.store_pk,
+            DyProductDay.shop_id,
+            DyProductDay.shop_name,
+            DyProductDay.product_id,
+            DyProductDay.product_name,
+            DyProductDay.refund_rate,
+            DyProductDay.good_rate,
+            totals.c.pay_amount,
+            totals.c.order_count,
+            totals.c.refund_amount,
+            totals.c.updated_at,
+        )
+        .join(
+            totals,
+            and_(
+                DyProductDay.store_pk == totals.c.store_pk,
+                DyProductDay.product_id == totals.c.product_id,
+                DyProductDay.stat_date == totals.c.stat_date,
+            ),
+        )
+        .order_by(totals.c.pay_amount.desc())
+    )
+    single_day = start_day == end_day
+    items = []
+    newest = None
+    for row in db.execute(stmt):
+        shop = shops.get(int(row.store_pk or 0))
+        if shop is None:
+            continue
+        pay_fen = int(row.pay_amount or 0)
+        refund_fen = int(row.refund_amount or 0)
+        stamp = row.updated_at
+        if stamp is not None and (newest is None or stamp > newest):
+            newest = stamp
+        items.append({
+            "store_pk": shop.id,
+            "shop_id": shop.shop_id,
+            "name": shop.name or row.shop_name or "",
+            "login_status": shop.login_status or "",
+            "sync_error": "",
+            "product_id": row.product_id or "",
+            "product_name": row.product_name or "",
+            "pay_amount": _money(pay_fen / 100),
+            "order_count": str(int(row.order_count or 0)),
+            "refund_amount": _money(refund_fen / 100),
+            "refund_rate": _refund_percent(pay_fen, refund_fen, row.refund_rate, single_day),
+            "good_rate": _stored_percent(row.good_rate) if single_day else "—",
+        })
+    notes = []
+    if not single_day:
+        notes.append("好评率只在单日显示。它是原站按当天评价条数算出的比例，跨多天没有评价条数，不能相加或平均。")
+    if start_day < date(2026, 10, 1):
+        notes.append("商品日从 2026-10-01 开始入库。")
+    if end_day >= date.today():
+        notes.append("今天的商品只在实时里。")
     data = {
         "preset": preset,
         "date_type": date_type,
-        "start": start_text,
-        "end": end_text,
-        "updated_at": str(payload.get("updated_at") or ""),
-        "note": str(payload.get("note") or ""),
+        "start": start_day.isoformat(),
+        "end": end_day.isoformat(),
+        "updated_at": newest.strftime("%Y-%m-%d %H:%M:%S") if isinstance(newest, datetime) else "",
+        "note": " ".join(notes),
         "layout": "products",
-        "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
+        "items": items,
     }
     data.update(center_schedule())
     return data
@@ -1779,7 +1889,8 @@ def _enqueue_product_payload(payload: dict) -> dict:
 def start_product_refresh(preset: str, start: str = "", end: str = "") -> dict:
     if (preset or "").strip() == "realtime":
         return _enqueue_live_job()
-    return _enqueue_product_job([{"preset": preset, "start": start, "end": end}])
+    resolve_span(preset, start, end)
+    return {"running": False, "done": 0, "total": 0, "failed": 0, "message": "这一段读数据库"}
 
 
 def _enqueue_live_job() -> dict:
@@ -1788,8 +1899,8 @@ def _enqueue_live_job() -> dict:
 
 
 def start_product_defaults() -> dict:
-    """10 分钟任务刷新商品明细的近 1 天、近 7 天、近 30 天。一家店只进一次罗盘。"""
-    return _enqueue_product_job([{"preset": preset, "start": "", "end": ""} for preset in _PRODUCT_PRESETS])
+    """近 1 天、近 7 天、近 30 天改读数据库，10 分钟任务不再向罗盘拉这三段。"""
+    return {"running": False, "done": 0, "total": 0, "failed": 0, "message": "这一段读数据库"}
 
 
 def touch_daily() -> str:
@@ -1843,12 +1954,6 @@ def load_center_cache() -> None:
             _load_shops(_span_key(preset, start_day, end_day))
         except Exception:
             _LOG.exception("读取数据总览或店铺明细缓存失败 %s", preset)
-    for preset in _PRODUCT_PRESETS:
-        try:
-            _date_type, start_day, end_day = resolve_span(preset)
-            _load_products(_span_key(preset, start_day, end_day))
-        except Exception:
-            _LOG.exception("读取商品明细缓存失败 %s", preset)
     try:
         _load_products(_LIVE_SUMMARY_KEY)
     except Exception:
@@ -1870,14 +1975,12 @@ def _wait_idle(reader) -> None:
 
 
 def run_center_cycle() -> None:
-    """店铺明细四个时间，再更新商品明细近 1/7/30 天，最后用首页商品列表拉实时商品。"""
+    """店铺明细四个时间，再用首页商品列表拉实时商品。近 1 天及更早的商品读数据库。"""
     _COMPASS_TURN.acquire()
     try:
         for preset in ("realtime", "1", "7", "30"):
             start_shop_refresh(preset)
             _wait_idle(shop_progress)
-        start_product_defaults()
-        _wait_idle(product_progress)
         _enqueue_live_job()
         _wait_idle(product_progress)
         finished = datetime.now()

@@ -174,7 +174,9 @@
     function paintShellFilters() {
         var shopText = "当前筛选：" + accountLabel() + " · " + shopLabel() + " · " + timeLabel();
         el("center-shops-filter").textContent = shopText;
-        el("center-products-filter").textContent = "当前筛选：" + accountLabel() + " · " + shopLabel() + " · " + timeLabel();
+        var productText = "当前筛选：" + accountLabel() + " · " + shopLabel() + " · " + timeLabel();
+        if (productData && productData.note && !productIsLive(productData)) productText += "。" + productData.note;
+        el("center-products-filter").textContent = productText;
     }
 
     function productQuery() {
@@ -190,10 +192,9 @@
     }
 
     function productEmptyText(data) {
-        if (data && data.note) return data.note;
         if (productIsLive(data)) return data && data.updated_at ? "今天还没有商品" : "实时商品还没有，点查询拉取";
         if (data && data.updated_at) return "这个时间没有商品";
-        return "这个时间还没有缓存，点查询拉取";
+        return "这个时间还没有入库的商品";
     }
 
     function paintSchedule(state) {
@@ -204,8 +205,8 @@
         var text = "";
         if (tab === "products" && current && current.next_update && preset() === "realtime") {
             text = "实时每" + (current.interval_minutes || 10) + "分钟更新各店商品，下次更新 " + current.next_update;
-        } else if (tab === "products" && current && current.next_update) {
-            text = "每" + (current.interval_minutes || 10) + "分钟更新近1天、近7天、近30天，下次更新 " + current.next_update;
+        } else if (tab === "products") {
+            text = "除实时外按天读数据库。每天 00:01 写入昨天，从 2026-10-01 起";
         } else if (tab === "shops" && current && current.next_update) {
             text = "每" + (current.interval_minutes || 10) + "分钟更新一次，下次更新 " + current.next_update;
         }
@@ -1090,6 +1091,11 @@
 
     function refreshProducts() {
         var mode = preset();
+        if (mode !== "realtime") {
+            productData = null;
+            ensureProducts();
+            return;
+        }
         var body = { preset: mode, start: "", end: "" };
         if (mode === "custom") {
             body.start = el("center-start").value;

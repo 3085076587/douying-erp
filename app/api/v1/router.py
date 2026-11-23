@@ -10,6 +10,7 @@ from app.api.v1.routers import (
     funds,
     health,
     invoices,
+    product_refund_rates,
     stores,
     violations,
 )
@@ -25,3 +26,4 @@ api_router.include_router(invoices.router)
 api_router.include_router(compensates.router)
 api_router.include_router(violations.router)
 api_router.include_router(center.router)
+api_router.include_router(product_refund_rates.router)
