@@ -673,8 +673,8 @@
         }
         note.textContent = data.error ? ("后面的页没有拿全：" + data.error) : "实时数据，不会保存";
         body.innerHTML = items.map(function (item) {
-            return "<tr><td><div class=\"center-product-name\">" + Dash.escapeHtml(item.product_name || "未命名商品")
-                + "</div><div class=\"center-home-id\">" + Dash.escapeHtml(item.product_id || "") + "</div></td>"
+            return "<tr><td class=\"center-product-name\">" + Dash.escapeHtml(item.product_name || "未命名商品")
+                + "<div class=\"center-home-id\">" + Dash.escapeHtml(item.product_id || "") + "</div></td>"
                 + liveMetricCells(item) + "</tr>";
         }).join("");
     }
@@ -964,6 +964,7 @@
         var liveHead = el("center-products-head-live");
         if (itemHead) itemHead.classList.toggle("hidden", live);
         if (liveHead) liveHead.classList.toggle("hidden", !live);
+        if (body && body.closest("table")) body.closest("table").classList.toggle("center-live-table", live);
         var search = el("center-product-q");
         if (search) search.placeholder = live ? "商品名称、ID或店铺" : "商品名称或ID";
         var body = el("center-products-tbody");
@@ -998,7 +999,7 @@
                     product += '<div class="center-home-id">ID ' + Dash.escapeHtml(item.product_id) + "</div>";
                 }
                 product += "</td>";
-                var shop = "<td>" + Dash.escapeHtml(item.name || "未命名店铺")
+                var shop = '<td class="center-shop-name">' + Dash.escapeHtml(item.name || "未命名店铺")
                     + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
                 if (item.sync_error) {
                     return "<tr>" + product + shop + '<td colspan="16" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
@@ -1013,7 +1014,7 @@
                 product += '<div class="center-home-id">ID ' + Dash.escapeHtml(item.product_id) + "</div>";
             }
             product += "</td>";
-            var shop = "<td>" + Dash.escapeHtml(item.name || "未命名店铺")
+            var shop = '<td class="center-shop-name">' + Dash.escapeHtml(item.name || "未命名店铺")
                 + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
             if (item.sync_error) {
                 var errorText = item.sync_error.indexOf("频繁") >= 0 ? "暂无商品数据" : item.sync_error;
