@@ -164,7 +164,8 @@
     font: inherit;
 }
 .center-live-btn:hover { text-decoration: underline; }
-.live-dialog { width: min(1180px, 96vw); }
+.live-dialog { width: min(1480px, 96vw); }
+.live-dialog th { white-space: nowrap; }
 .live-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .live-table-wrap { max-height: 70vh; overflow: auto; }
 .center-home-id { color: #999; font-size: 12px; font-weight: 400; }

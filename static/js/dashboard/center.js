@@ -619,8 +619,40 @@
         }).catch(function () {});
     }
 
+    var LIVE_METRIC_KEYS = [
+        "user_pay_amount",
+        "show_user_count",
+        "pay_amount",
+        "order_count",
+        "ad_cost",
+        "refund_amount",
+        "refund_order_count",
+        "refund_rate",
+        "pay_user_count",
+        "avg_pay",
+        "stock_count",
+        "net_pay_amount",
+        "net_order_count",
+        "refund_rate_1h",
+        "refund_amount_1h",
+        "refund_order_count_1h"
+    ];
+
     function metricCell(value) {
         return '<td><div class="center-shop-value">' + Dash.escapeHtml(value || "—") + "</div></td>";
+    }
+
+    function liveMetricCells(item) {
+        return LIVE_METRIC_KEYS.map(function (key) {
+            return metricCell(item[key]);
+        }).join("");
+    }
+
+    function rateText(part, whole) {
+        if (!whole) return "—";
+        var rate = (part / whole) * 100;
+        if (Math.abs(rate - Math.round(rate)) < 0.05) return Math.round(rate) + "%";
+        return rate.toFixed(2) + "%";
     }
 
     function liveCell(item) {
@@ -634,7 +666,7 @@
         var items = (data && data.items) || [];
         var note = el("live-note");
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">'
+            body.innerHTML = '<tr><td colspan="17" class="empty">'
                 + Dash.escapeHtml((data && data.error) || "这家店现在没有商品数据") + "</td></tr>";
             note.textContent = "";
             return;
@@ -643,12 +675,7 @@
         body.innerHTML = items.map(function (item) {
             return "<tr><td><div class=\"center-product-name\">" + Dash.escapeHtml(item.product_name || "未命名商品")
                 + "</div><div class=\"center-home-id\">" + Dash.escapeHtml(item.product_id || "") + "</div></td>"
-                + "<td>" + Dash.escapeHtml(item.pay_amount || "—") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.order_count || "0") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.refund_amount || "—") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.net_pay_amount || "—") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.net_order_count || "0") + "</td>"
-                + "<td>" + Dash.escapeHtml(item.refund_rate || "—") + "</td></tr>";
+                + liveMetricCells(item) + "</tr>";
         }).join("");
     }
 
@@ -660,7 +687,7 @@
         var mask = el("live-mask");
         el("live-title").textContent = (shopName || "店铺") + " 商品实时";
         el("live-note").textContent = "正在获取实时商品…";
-        el("live-tbody").innerHTML = '<tr><td colspan="7" class="empty">正在获取…</td></tr>';
+        el("live-tbody").innerHTML = '<tr><td colspan="17" class="empty">正在获取…</td></tr>';
         mask.classList.remove("hidden");
         Dash.request("/center/shops/" + storePk + "/live-products").then(function (data) {
             if (mask.classList.contains("hidden")) return;
@@ -668,7 +695,7 @@
         }).catch(function (err) {
             if (mask.classList.contains("hidden")) return;
             el("live-note").textContent = "";
-            el("live-tbody").innerHTML = '<tr><td colspan="7" class="empty">'
+            el("live-tbody").innerHTML = '<tr><td colspan="17" class="empty">'
                 + Dash.escapeHtml(err.message || "获取失败") + "</td></tr>";
         });
     }
@@ -759,16 +786,25 @@
             ];
         } else if (tab === "products" && productIsLive(productData)) {
             var pay = sumField(items || [], "pay_amount");
+            var userPay = sumField(items || [], "user_pay_amount");
+            var buyers = sumField(items || [], "pay_user_count");
             var refund = sumField(items || [], "refund_amount");
-            var rate = pay ? (refund / pay) * 100 : 0;
-            var rateText = !pay ? "—" : (Math.abs(rate - Math.round(rate)) < 0.05 ? Math.round(rate) + "%" : rate.toFixed(2) + "%");
             fields = [
+                ["用户支付金额", formatMoney(userPay)],
+                ["曝光人数", formatCount(sumField(items || [], "show_user_count"))],
                 ["成交金额", formatMoney(pay)],
                 ["成交订单数", formatCount(sumField(items || [], "order_count"))],
+                ["投放消耗", formatMoney(sumField(items || [], "ad_cost"))],
                 ["退款金额", formatMoney(refund)],
+                ["退款订单数", formatCount(sumField(items || [], "refund_order_count"))],
+                ["退款率", rateText(refund, pay)],
+                ["成交人数", formatCount(buyers)],
+                ["客单价", buyers ? formatMoney(userPay / buyers) : "—"],
+                ["实时可售库存", formatCount(sumField(items || [], "stock_count"))],
                 ["净成交金额", formatMoney(sumField(items || [], "net_pay_amount"))],
                 ["净成交订单", formatCount(sumField(items || [], "net_order_count"))],
-                ["退款率", rateText]
+                ["1小时退款金额", formatMoney(sumField(items || [], "refund_amount_1h"))],
+                ["1小时退款订单数", formatCount(sumField(items || [], "refund_order_count_1h"))]
             ];
         } else if (tab === "shops" || tab === "products") {
             fields = [
@@ -931,7 +967,7 @@
         var search = el("center-product-q");
         if (search) search.placeholder = live ? "商品名称、ID或店铺" : "商品名称或ID";
         var body = el("center-products-tbody");
-        var span = live ? 8 : 7;
+        var span = live ? 18 : 7;
         var scoped = visibleItems(productData.items || []);
         var items = sortedCopy(matchProductSearch(scoped), productSort);
         paintSortMarks();
@@ -965,16 +1001,9 @@
                 var shop = "<td>" + Dash.escapeHtml(item.name || "未命名店铺")
                     + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
                 if (item.sync_error) {
-                    return "<tr>" + product + shop + '<td colspan="6" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
+                    return "<tr>" + product + shop + '<td colspan="16" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
                 }
-                return "<tr>" + product + shop
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.pay_amount || "—") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.order_count || "0") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_amount || "—") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.net_pay_amount || "—") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.net_order_count || "0") + "</div></td>"
-                    + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_rate || "—") + "</div></td>"
-                    + "</tr>";
+                return "<tr>" + product + shop + liveMetricCells(item) + "</tr>";
             }).join("");
             return;
         }

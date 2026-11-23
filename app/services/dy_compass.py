@@ -537,11 +537,21 @@ def _collect_products(
 
 _LIVE_PRODUCT_INDEXES = ",".join(
     (
+        "receive_amt",
+        "product_show_ucnt",
         "pay_amt",
         "pay_cnt",
+        "ad_costed_amt",
         "refund_amt",
+        "refund_cnt",
+        "pay_ucnt",
+        "per_customer_transaction",
+        "stock_cnt",
         "net_trans_amt",
         "net_pay_cnt",
+        "pay_refund_trans_ratio_1h",
+        "real_refund_amt_1h",
+        "refund_cnt_1h",
     )
 )
 _LIVE_PAGE_SIZE = 10

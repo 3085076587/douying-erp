@@ -1011,12 +1011,21 @@ def _product_row(shop: Shop, info: dict | None = None, error: str = "") -> dict:
 
 
 _LIVE_FIELDS = (
+    ("user_pay_amount", "money", "receive_amt"),
+    ("show_user_count", "count", "product_show_ucnt"),
     ("pay_amount", "money", "pay_amt"),
     ("order_count", "count", "pay_cnt"),
+    ("ad_cost", "money", "ad_costed_amt"),
     ("refund_amount", "money", "refund_amt"),
+    ("refund_order_count", "count", "refund_cnt"),
+    ("pay_user_count", "count", "pay_ucnt"),
+    ("avg_pay", "money", "per_customer_transaction"),
+    ("stock_count", "count", "stock_cnt"),
     ("net_pay_amount", "money", "net_trans_amt"),
     ("net_order_count", "count", "net_pay_cnt"),
-    ("refund_rate", "rate", "pay_refund_ratio"),
+    ("refund_rate_1h", "rate", "pay_refund_trans_ratio_1h"),
+    ("refund_amount_1h", "money", "real_refund_amt_1h"),
+    ("refund_order_count_1h", "count", "refund_cnt_1h"),
 )
 
 
@@ -1130,11 +1139,16 @@ def _shape_live_row(info: dict) -> dict | None:
     refund = _live_number(info, "refund_amt")
     orders = _live_number(info, "pay_cnt")
     refund_orders = _live_number(info, "refund_cnt")
+    user_pay = _live_number(info, "receive_amt")
+    pay_users = _live_number(info, "pay_ucnt")
     if row["net_pay_amount"] == "—" and pay is not None and refund is not None:
         row["net_pay_amount"] = _money((pay - refund) / 100)
     if row["net_order_count"] == "—" and orders is not None and refund_orders is not None:
         row["net_order_count"] = str(int(orders - refund_orders))
-    if row["refund_rate"] == "—" and pay:
+    if row.get("avg_pay") == "—" and user_pay and pay_users:
+        row["avg_pay"] = _money((user_pay / pay_users) / 100)
+    row["refund_rate"] = "—"
+    if pay:
         row["refund_rate"] = _operating_text("rate", {"value": (refund or 0) / pay, "unit": "4"}, empty="—")
     return row
 
@@ -1383,12 +1397,22 @@ def _live_catalog_row(shop: Shop, info: dict | None = None, error: str = "") -> 
         "sync_error": (error or "")[:200],
         "product_id": "",
         "product_name": "",
+        "user_pay_amount": "",
+        "show_user_count": "",
         "pay_amount": "",
         "order_count": "",
-        "refund_rate": "",
+        "ad_cost": "",
         "refund_amount": "",
+        "refund_order_count": "",
+        "refund_rate": "",
+        "pay_user_count": "",
+        "avg_pay": "",
+        "stock_count": "",
         "net_pay_amount": "",
         "net_order_count": "",
+        "refund_rate_1h": "",
+        "refund_amount_1h": "",
+        "refund_order_count_1h": "",
         "good_rate": "",
     }
     if not shaped:
