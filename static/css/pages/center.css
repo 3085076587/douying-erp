@@ -194,6 +194,54 @@
     max-width: 96px;
 }
 #center-pane-products .center-live-table { min-width: 1680px; }
+/* 数据中心表格在可视区域内滚动，左右滑块停在这块底部，不用把整页滚到底。 */
+#view-center.view.active {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 96px);
+    min-height: 320px;
+}
+#view-center .center-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+#view-center .center-toolbar,
+#view-center #center-range-note,
+#view-center .center-summary-box,
+#view-center .center-tabs {
+    flex-shrink: 0;
+}
+#view-center .center-pane:not(.hidden) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+}
+#center-pane-home .center-progress,
+#center-pane-shops .center-progress,
+#center-pane-shops > .form-hint,
+#center-pane-products .center-progress,
+#center-pane-products .center-product-search {
+    flex-shrink: 0;
+}
+#center-pane-home .table-wrap,
+#center-pane-shops .table-wrap,
+#center-pane-products .table-wrap {
+    flex: 1;
+    min-height: 160px;
+    overflow: auto;
+}
+#center-pane-home .table-wrap thead th,
+#center-pane-shops .table-wrap thead th,
+#center-pane-products .table-wrap thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #fff;
+}
 .center-shop-sub { margin-top: 2px; color: #888; font-size: 12px; }
 .center-sort {
     padding: 0;
