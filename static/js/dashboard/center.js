@@ -203,10 +203,8 @@
         if (!node) return;
         var current = scheduleState;
         var text = "";
-        if (tab === "products" && current && current.next_update && preset() === "realtime") {
-            text = "实时每" + (current.interval_minutes || 10) + "分钟更新各店商品，下次更新 " + current.next_update;
-        } else if (tab === "products") {
-            text = "除实时外按天读数据库。每天 00:01 写入昨天，从 2026-10-01 起";
+        if (tab === "products" && current && current.next_update) {
+            text = "实时数据下次更新 " + current.next_update;
         } else if (tab === "shops" && current && current.next_update) {
             text = "每" + (current.interval_minutes || 10) + "分钟更新一次，下次更新 " + current.next_update;
         }
