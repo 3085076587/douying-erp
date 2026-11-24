@@ -56,14 +56,41 @@ def ensure_product_table() -> None:
         for name, ddl in (("good_count", "INT NOT NULL DEFAULT 0"), ("eval_count", "INT NOT NULL DEFAULT 0")):
             if name not in names:
                 conn.execute(text(f"ALTER TABLE dy_product_day ADD COLUMN {name} {ddl}"))
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS dy_product_day_mark (
+                store_pk INT NOT NULL,
+                stat_date DATE NOT NULL,
+                PRIMARY KEY (store_pk, stat_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        ))
 
 
 def sync_yesterday() -> str:
-    """每天 00:01 拉昨天。同一天再跑会覆盖。"""
+    """补齐每家店缺的日期，直到昨天。同一天最多试 3 次，仍拿不到就记成没有商品，然后照常更新退款率。"""
     ensure_product_table()
-    day = date.today() - timedelta(days=1)
-    ok, fail, skip = _sync_range(day, day)
-    return f"昨天 {day.isoformat()} 成功 {ok} 家，失败 {fail} 家，跳过 {skip} 家"
+    yesterday = date.today() - timedelta(days=1)
+    only_ids: set[int] | None = None
+    failed_ids: list[int] = []
+    offline_ids: list[int] = []
+    for attempt in range(1, 4):
+        _ok, _fail, _skip, failed_ids, found_offline = _sync_due(yesterday, only_ids)
+        for shop_id in found_offline:
+            if shop_id not in offline_ids:
+                offline_ids.append(shop_id)
+        if not failed_ids:
+            break
+        only_ids = set(failed_ids)
+        if attempt < 3:
+            print(f"还有 {len(failed_ids)} 家没拿到，第 {attempt + 1} 次再试", flush=True)
+    abandoned = _abandon_days(failed_ids, yesterday) if failed_ids else 0
+    if offline_ids:
+        print(f"{len(offline_ids)} 家登录失效，这一天先不记空", flush=True)
+    from app.services.product_refund_rate import rebuild_refund_rates
+
+    rate = rebuild_refund_rates()
+    return f"{yesterday.isoformat()} 放弃 {abandoned} 家。{rate}"
 
 
 def backfill_since_october() -> None:
@@ -92,6 +119,109 @@ def _dates(start: date, end: date) -> list[date]:
         days.append(cursor)
         cursor += timedelta(days=1)
     return days
+
+
+def _due_days(store_pk: int, yesterday: date) -> list[date]:
+    """这家店最后入库日的下一天，一直补到昨天。已经有昨天的不再请求罗盘。"""
+    with SessionLocal() as db:
+        last = db.execute(
+            text(
+                """
+                SELECT MAX(stat_date) FROM (
+                    SELECT MAX(stat_date) AS stat_date FROM dy_product_day WHERE store_pk = :pk
+                    UNION ALL
+                    SELECT MAX(stat_date) FROM dy_product_day_mark WHERE store_pk = :pk
+                ) t
+                """
+            ),
+            {"pk": store_pk},
+        ).scalar()
+    if isinstance(last, datetime):
+        last = last.date()
+    if last is None:
+        return [yesterday]
+    if last >= yesterday:
+        return []
+    return _dates(last + timedelta(days=1), yesterday)
+
+
+def _sync_due(
+    yesterday: date, only_ids: set[int] | None = None
+) -> tuple[int, int, int, list[int], list[int]]:
+    with SessionLocal() as db:
+        shops = list(db.scalars(select(Shop).order_by(Shop.id.asc())))
+    if only_ids is not None:
+        shops = [shop for shop in shops if shop.id in only_ids]
+    ok = fail = skip = 0
+    failed_ids: list[int] = []
+    offline_ids: list[int] = []
+    announced = False
+    for index, shop in enumerate(shops, 1):
+        days = _due_days(shop.id, yesterday)
+        if not days:
+            print(f"{index}/{len(shops)} {shop.name} 已有 {yesterday.isoformat()}", flush=True)
+            ok += 1
+            continue
+        print(f"{index}/{len(shops)} 开始 {shop.name} {'、'.join(day.isoformat() for day in days)}", flush=True)
+        try:
+            line, announced = _sync_shop(shop.id, shop.name, days, announced)
+        except Exception as exc:
+            line = f"[失败] {shop.name} {exc}"
+        print(f"{index}/{len(shops)} {line}", flush=True)
+        if line.startswith("[完成]"):
+            ok += 1
+        elif line.startswith("[跳过]"):
+            skip += 1
+        elif line.startswith("[掉线]"):
+            fail += 1
+            offline_ids.append(shop.id)
+        else:
+            fail += 1
+            failed_ids.append(shop.id)
+        if index < len(shops):
+            time.sleep(SHOP_GAP)
+    return ok, fail, skip, failed_ids, offline_ids
+
+
+def _abandon_days(store_ids: list[int], yesterday: date) -> int:
+    """连续 3 次没拿到的日期记成没有商品。不删已有的商品行，下次不再请求这些天。"""
+    with SessionLocal() as db:
+        names = {
+            shop.id: shop.name
+            for shop in db.scalars(select(Shop).where(Shop.id.in_(store_ids)))
+        }
+    abandoned = 0
+    for store_pk in store_ids:
+        days = _due_days(store_pk, yesterday)
+        if not days:
+            continue
+        _mark_days(store_pk, days)
+        abandoned += 1
+        name = names.get(store_pk) or str(store_pk)
+        print(
+            f"放弃 {name} {'、'.join(day.isoformat() for day in days)}，这一天没有商品",
+            flush=True,
+        )
+    return abandoned
+
+
+def _mark_days(store_pk: int, days: list[date]) -> None:
+    db = SessionLocal()
+    try:
+        for day in days:
+            db.execute(text(
+                """
+                INSERT INTO dy_product_day_mark (store_pk, stat_date)
+                VALUES (:pk, :day)
+                ON DUPLICATE KEY UPDATE stat_date = VALUES(stat_date)
+                """
+            ), {"pk": store_pk, "day": day})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def _sync_range(start: date, end: date) -> tuple[int, int, int]:
@@ -148,7 +278,8 @@ def _sync_shop(shop_id: int, shop_name: str, days: list[date], announced: bool) 
             time.sleep(DAY_GAP)
     except ProductPartial as exc:
         _save_cookies(view["id"], cookies)
-        return f"[失败] {shop_name} 第 {exc.page_no} 页没拉完，已写入 {written} 天", announced
+        reason = exc.message or "罗盘接口失败"
+        return f"[失败] {shop_name} 第 {exc.page_no} 页没拉完：{reason}，已写入 {written} 天", announced
     except ShopAuthError as exc:
         _save_cookies(view["id"], cookies)
         return f"[掉线] {shop_name} {exc}，已写入 {written} 天", announced
@@ -271,6 +402,13 @@ def _replace_day(store_pk: int, day: date, records: list[dict], cookies: dict[st
         ))
         for record in records:
             db.add(DyProductDay(**record))
+        db.execute(text(
+            """
+            INSERT INTO dy_product_day_mark (store_pk, stat_date)
+            VALUES (:pk, :day)
+            ON DUPLICATE KEY UPDATE stat_date = VALUES(stat_date)
+            """
+        ), {"pk": store_pk, "day": day})
         if shop is not None:
             keep_shop_jar(shop, cookies)
         db.commit()

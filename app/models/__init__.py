@@ -5,6 +5,7 @@ from app.models.deal import DyDealDay
 from app.models.product_day import DyProductDay
 from app.models.product_refund_rate import DyProductRefundRate
 from app.models.shop import Shop
+from app.models.shop_owner import ShopOwner
 from app.models.user import User
 from app.models.violation import DyViolation
 
@@ -15,6 +16,7 @@ __all__ = [
     "DyProductRefundRate",
     "Shop",
     "ShopAccount",
+    "ShopOwner",
     "User",
     "DyViolation",
 ]

@@ -1,4 +1,4 @@
-"""按 dy_product_day 里已有的全部日期，算出每个商品的退款率。不访问抖音。"""
+"""按 dy_product_day 里昨天及以前的日期，算出每个商品的退款率。不访问抖音，不含今天。"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -37,6 +37,7 @@ FROM (
         COUNT(*) AS day_count
     FROM dy_product_day
     WHERE product_id <> ''
+      AND stat_date < CURDATE()
     GROUP BY store_pk, product_id
 ) t
 JOIN dy_product_day d
@@ -63,6 +64,7 @@ LEFT JOIN (
     SELECT store_pk, product_id
     FROM dy_product_day
     WHERE product_id <> ''
+      AND stat_date < CURDATE()
     GROUP BY store_pk, product_id
 ) t
   ON r.store_pk = t.store_pk AND r.product_id = t.product_id
@@ -98,7 +100,7 @@ def ensure_refund_rate_table() -> None:
 
 
 def rebuild_refund_rates() -> str:
-    """用商品日里现有的全部日期重算。老商品更新，新商品插入，没有日数据的删掉。"""
+    """用昨天及以前的商品日重算。老商品更新，新商品插入，没有日数据的删掉。今天不进这张表。"""
     from app.services.product_sync import ensure_product_table
 
     ensure_product_table()

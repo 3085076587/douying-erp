@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=22">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=23">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=4">
     <link rel="stylesheet" href="/static/css/pages/compensates.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=20">
@@ -473,11 +473,11 @@
                         <table class="data-table">
                             <thead>
                             <tr>
-                                <th>账号</th><th>姓名</th><th>店铺列表</th><th>违规与预警</th><th>数据总览</th><th>资金结算</th><th>操作</th>
+                                <th>账号</th><th>姓名</th><th>负责店铺</th><th>店铺列表</th><th>违规与预警</th><th>数据总览</th><th>资金结算</th><th>操作</th>
                             </tr>
                             </thead>
                             <tbody id="access-tbody">
-                            <tr><td colspan="7" class="empty">加载中</td></tr>
+                            <tr><td colspan="8" class="empty">加载中</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -628,6 +628,17 @@
         </div>
     </div>
 </div>
+<div id="charge-mask" class="mask hidden">
+    <form id="charge-form" class="dialog charge-dialog">
+        <h2 id="charge-title">分配负责店铺</h2>
+        <p class="form-hint">一家店只能有一个负责人。勾上别人正在负责的店，保存后会改到这个人。</p>
+        <div id="charge-list" class="charge-list"></div>
+        <div class="dialog-actions">
+            <button class="btn" id="charge-cancel" type="button">取消</button>
+            <button class="btn btn-primary" id="charge-save" type="submit">保存</button>
+        </div>
+    </form>
+</div>
 <div id="member-mask" class="mask hidden">
     <form id="member-form" class="dialog">
         <h2>添加成员</h2>
@@ -657,6 +668,6 @@
 <script src="/static/js/dashboard/compensates.js?v=3"></script>
 <script src="/static/js/dashboard/violations.js?v=19"></script>
 <script src="/static/js/dashboard/center.js?v=49"></script>
-<script src="/static/js/dashboard/members.js?v=1"></script>
+<script src="/static/js/dashboard/members.js?v=2"></script>
 </body>
 </html>

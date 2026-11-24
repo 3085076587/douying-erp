@@ -244,9 +244,9 @@ async def _deal_day_loop() -> None:
 
 
 async def _product_day_loop() -> None:
-    """商品日：每天 00:01 拉昨天。实时商品仍走原来的 10 分钟任务。"""
-    logger.info("商品日已启动，每天 00:01 拉昨天")
-    write_start("商品日，每天 00:01 拉昨天")
+    """商品日：每天 00:01 把每家店缺的日期补到昨天。实时商品仍走原来的 10 分钟任务。"""
+    logger.info("商品日已启动，每天 00:01 补齐到昨天")
+    write_start("商品日，每天 00:01 补齐到昨天")
     while True:
         try:
             await asyncio.sleep(_seconds_until_clock(0, 1))
