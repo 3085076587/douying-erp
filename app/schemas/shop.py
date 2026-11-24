@@ -15,6 +15,7 @@ class ShopInfo(BaseModel):
     login_status: str
     credential_at: str = ""
     owner_account: str = ""
+    charge_name: str = ""
     shop_cookie: int = 0
     opened_on: str = ""
 

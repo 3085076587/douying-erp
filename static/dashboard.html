@@ -6,7 +6,7 @@
     <title>抖店 管理系统</title>
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=23">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=24">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=4">
     <link rel="stylesheet" href="/static/css/pages/compensates.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=20">
@@ -79,11 +79,11 @@
                         <table class="data-table">
                             <thead>
                             <tr>
-                                <th>店铺名称</th><th>店铺ID</th><th>归属账号</th><th>建议重新登录</th><th>登录</th><th>操作</th>
+                                <th>店铺名称</th><th>负责人</th><th>店铺ID</th><th>归属账号</th><th>建议重新登录</th><th>登录</th><th>操作</th>
                             </tr>
                             </thead>
                             <tbody id="store-tbody">
-                            <tr><td colspan="6" class="empty">加载中</td></tr>
+                            <tr><td colspan="7" class="empty">加载中</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -357,7 +357,7 @@
                             <table class="data-table">
                                 <thead>
                                 <tr>
-                                    <th>店铺名称</th><th>登录</th>
+                                    <th>店铺名称</th><th>负责人</th><th>登录</th>
                                     <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="pending_pay" data-sort-label="待支付">待支付</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="pending_ship" data-sort-label="待发货">待发货</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="home" data-sort-key="abnormal_package" data-sort-label="异常包裹">异常包裹</button></th>
@@ -368,7 +368,7 @@
                                 </tr>
                                 </thead>
                                 <tbody id="center-home-tbody">
-                                <tr><td colspan="9" class="empty">打开后加载</td></tr>
+                                <tr><td colspan="10" class="empty">打开后加载</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -387,6 +387,7 @@
                                 <thead>
                                 <tr>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="name" data-sort-label="店铺名称">店铺名称</button></th>
+                                    <th>负责人</th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="experience_score" data-sort-label="总分">总分</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="goods_score" data-sort-label="商品体验">商品体验</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="logistics_score" data-sort-label="物流体验">物流体验</button></th>
@@ -405,7 +406,7 @@
                                 </tr>
                                 </thead>
                                 <tbody id="center-shops-tbody">
-                                <tr><td colspan="16" class="empty">打开后加载</td></tr>
+                                <tr><td colspan="17" class="empty">打开后加载</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -428,6 +429,7 @@
                                 <tr id="center-products-head-live" class="hidden">
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="product_name" data-sort-label="商品">商品</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="name" data-sort-label="店铺">店铺</button></th>
+                                    <th>负责人</th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="user_pay_amount" data-sort-label="用户支付金额">用户支付金额</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="show_user_count" data-sort-label="曝光人数">曝光人数</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="pay_amount" data-sort-label="成交金额">成交金额 ↓</button></th>
@@ -448,6 +450,7 @@
                                 <tr id="center-products-head-items">
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="product_name" data-sort-label="商品">商品</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="name" data-sort-label="店铺">店铺</button></th>
+                                    <th>负责人</th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="pay_amount" data-sort-label="成交金额">成交金额 ↓</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="order_count" data-sort-label="成交订单数">成交订单数</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="products" data-sort-key="refund_rate" data-sort-label="退款率（支付时间）">退款率（支付时间）</button></th>
@@ -456,7 +459,7 @@
                                 </tr>
                                 </thead>
                                 <tbody id="center-products-tbody">
-                                <tr><td colspan="7" class="empty">打开后加载</td></tr>
+                                <tr><td colspan="8" class="empty">打开后加载</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -473,11 +476,33 @@
                         <table class="data-table">
                             <thead>
                             <tr>
-                                <th>账号</th><th>姓名</th><th>负责店铺</th><th>店铺列表</th><th>违规与预警</th><th>数据总览</th><th>资金结算</th><th>操作</th>
+                                <th>账号</th><th>姓名</th><th>店铺列表</th><th>违规与预警</th><th>数据总览</th><th>资金结算</th><th>操作</th>
                             </tr>
                             </thead>
                             <tbody id="access-tbody">
-                            <tr><td colspan="8" class="empty">加载中</td></tr>
+                            <tr><td colspan="7" class="empty">加载中</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="panel charge-panel">
+                    <div class="toolbar">
+                        <strong>店铺负责人</strong>
+                        <form id="charge-add" class="toolbar-actions">
+                            <input id="charge-name" maxlength="50" placeholder="姓名" autocomplete="off">
+                            <button class="btn btn-primary" type="submit">添加负责人</button>
+                        </form>
+                    </div>
+                    <p class="form-hint">这里只记姓名，不建登录账号。店铺列表、店铺明细和商品明细会显示这个人。</p>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                            <tr>
+                                <th>姓名</th><th>负责店铺</th><th>操作</th>
+                            </tr>
+                            </thead>
+                            <tbody id="charge-tbody">
+                            <tr><td colspan="3" class="empty">加载中</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -631,7 +656,7 @@
 <div id="charge-mask" class="mask hidden">
     <form id="charge-form" class="dialog charge-dialog">
         <h2 id="charge-title">分配负责店铺</h2>
-        <p class="form-hint">一家店只能有一个负责人。勾上别人正在负责的店，保存后会改到这个人。</p>
+        <p class="form-hint">一家店只能有一个负责人。勾上别人正在负责的店，保存后会改成这个人。这不会新增登录账号。</p>
         <div id="charge-list" class="charge-list"></div>
         <div class="dialog-actions">
             <button class="btn" id="charge-cancel" type="button">取消</button>
@@ -662,12 +687,12 @@
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
 <script src="/static/js/dashboard/core.js?v=14"></script>
-<script src="/static/js/dashboard/stores.js?v=11"></script>
+<script src="/static/js/dashboard/stores.js?v=12"></script>
 <script src="/static/js/dashboard/accounts.js?v=12"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/compensates.js?v=3"></script>
 <script src="/static/js/dashboard/violations.js?v=19"></script>
-<script src="/static/js/dashboard/center.js?v=49"></script>
-<script src="/static/js/dashboard/members.js?v=2"></script>
+<script src="/static/js/dashboard/center.js?v=51"></script>
+<script src="/static/js/dashboard/members.js?v=3"></script>
 </body>
 </html>

@@ -13,6 +13,7 @@ class CenterOverviewRow(BaseModel):
     store_pk: int
     shop_id: str = ""
     name: str = ""
+    charge_name: str = ""
     login_status: str = ""
     sync_error: str = ""
     metrics: list[CenterMetric] = []
@@ -40,6 +41,7 @@ class CenterHomeRow(BaseModel):
     store_pk: int
     shop_id: str = ""
     name: str = ""
+    charge_name: str = ""
     login_status: str = ""
     sync_error: str = ""
     pending_pay: str = ""
@@ -61,6 +63,7 @@ class CenterShopRow(BaseModel):
     store_pk: int
     shop_id: str = ""
     name: str = ""
+    charge_name: str = ""
     login_status: str = ""
     sync_error: str = ""
     pay_amount: str = ""
@@ -102,6 +105,7 @@ class CenterProductRow(BaseModel):
     store_pk: int
     shop_id: str = ""
     name: str = ""
+    charge_name: str = ""
     login_status: str = ""
     sync_error: str = ""
     product_id: str = ""
@@ -150,6 +154,7 @@ class LiveProductList(BaseModel):
     store_pk: int
     shop_id: str = ""
     name: str = ""
+    charge_name: str = ""
     error: str = ""
     items: list[LiveProductRow]
 

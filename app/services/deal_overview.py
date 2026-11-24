@@ -83,7 +83,12 @@ def assemble(shops: list, rows: list, days: list[date]) -> list[dict]:
                 continue
             for field in _FIELDS:
                 series[field][index] = int(getattr(record, field) or 0)
-        item = {"store_pk": shop.id, "name": shop.name or shop.shop_id or str(shop.id), **series}
+        item = {
+            "store_pk": shop.id,
+            "name": shop.name or shop.shop_id or str(shop.id),
+            "charge_name": "",
+            **series,
+        }
         for name in names:
             grouped.setdefault(name, []).append(dict(item))
 
@@ -103,9 +108,16 @@ def list_deals(db: Session, start: str = "", end: str = "") -> dict:
             select(DyDealDay).where(DyDealDay.stat_date >= start_day, DyDealDay.stat_date <= end_day)
         )
     )
+    groups = assemble(shops, rows, days)
+    from app.services.shop_owner import names_by_store
+
+    charges = names_by_store(db)
+    for group in groups:
+        for shop in group["shops"]:
+            shop["charge_name"] = charges.get(int(shop["store_pk"]), "")
     return {
         "start": start_day.isoformat(),
         "end": end_day.isoformat(),
         "days": [day.isoformat() for day in days],
-        "groups": assemble(shops, rows, days),
+        "groups": groups,
     }

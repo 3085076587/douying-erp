@@ -259,4 +259,7 @@ def read_home(db) -> dict:
         raw_ids = saved.get("pending_violation_ids")
         item["pending_violation_ids"] = [str(value) for value in raw_ids if str(value).strip()] if isinstance(raw_ids, list) else []
         items.append(item)
+    from app.services.shop_owner import stamp_charge
+
+    stamp_charge(db, items)
     return {"items": items, "updated_at": updated_at}

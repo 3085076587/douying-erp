@@ -11,6 +11,7 @@ from app.api.v1.routers import (
     health,
     invoices,
     product_refund_rates,
+    shop_charges,
     stores,
     violations,
 )
@@ -20,6 +21,7 @@ api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(account_access.router)
 api_router.include_router(accounts.router)
+api_router.include_router(shop_charges.router)
 api_router.include_router(stores.router)
 api_router.include_router(funds.router)
 api_router.include_router(invoices.router)

@@ -1,4 +1,5 @@
 from app.models.account import ShopAccount
+from app.models.charge_person import ChargePerson
 from app.models.account_import import AccountImport
 from app.models.compensate import DyCompensate
 from app.models.deal import DyDealDay
@@ -11,6 +12,7 @@ from app.models.violation import DyViolation
 
 __all__ = [
     "AccountImport",
+    "ChargePerson",
     "DyCompensate",
     "DyProductDay",
     "DyProductRefundRate",

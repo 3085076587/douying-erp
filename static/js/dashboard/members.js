@@ -1,4 +1,4 @@
-/* 成员管理。成员是后台账号里除 admin 以外的人。 */
+/* 成员管理。上面是登录账号，下面是店铺负责人，两套分开。 */
 (function () {
     "use strict";
     var D = window.Dash;
@@ -14,23 +14,15 @@
         ["fund", "资金结算"],
     ];
 
-    var shopChoices = [];
-
-    function shopNames(user) {
-        var names = (user.shops || []).map(function (shop) { return shop.name; }).filter(Boolean);
-        return names.length ? names.join("、") : "未分配";
-    }
-
     function loadAccess() {
         var body = document.getElementById("access-tbody");
         if (!body) return;
         request("/account-access").then(function (data) {
-            shopChoices = data.shops || [];
             var items = (data.items || []).filter(function (user) {
                 return user.username !== "admin";
             });
             if (!items.length) {
-                body.innerHTML = '<tr><td colspan="8" class="empty">没有成员</td></tr>';
+                body.innerHTML = '<tr><td colspan="7" class="empty">没有成员</td></tr>';
                 return;
             }
             body.innerHTML = items.map(function (user) {
@@ -41,17 +33,123 @@
                 return '<tr data-access-user="' + user.id + '">' +
                     "<td>" + escapeHtml(user.username) + "</td>" +
                     "<td>" + escapeHtml(user.display_name || "-") + "</td>" +
-                    '<td class="charge-cell">' + escapeHtml(shopNames(user)) +
-                    ' <button type="button" class="btn" data-charge="' + user.id + '" data-charge-name="' +
-                    escapeHtml(user.display_name || user.username) + '">分配</button></td>' +
                     boxes +
                     '<td><button type="button" class="btn btn-primary" data-access-save="' + user.id + '">保存</button></td>' +
                     "</tr>";
             }).join("");
         }).catch(function (err) {
-            body.innerHTML = '<tr><td colspan="8" class="empty">加载失败：' + escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="7" class="empty">加载失败：' + escapeHtml(err.message) + "</td></tr>";
         });
     }
+
+    var shopChoices = [];
+    var chargeMask = document.getElementById("charge-mask");
+    var chargeForm = document.getElementById("charge-form");
+    var chargeId = 0;
+
+    function shopText(person) {
+        var names = (person.shops || []).map(function (shop) { return shop.name; }).filter(Boolean);
+        return names.length ? names.join("、") : "未分配";
+    }
+
+    function loadCharges() {
+        var body = document.getElementById("charge-tbody");
+        if (!body) return;
+        request("/shop-charges").then(function (data) {
+            shopChoices = data.shops || [];
+            var items = data.items || [];
+            if (!items.length) {
+                body.innerHTML = '<tr><td colspan="3" class="empty">还没有负责人</td></tr>';
+                return;
+            }
+            body.innerHTML = items.map(function (person) {
+                return "<tr><td>" + escapeHtml(person.name) + "</td><td>" + escapeHtml(shopText(person)) +
+                    '</td><td><button type="button" class="btn" data-charge="' + person.id +
+                    '" data-charge-name="' + escapeHtml(person.name) + '">分配</button></td></tr>';
+            }).join("");
+        }).catch(function (err) {
+            body.innerHTML = '<tr><td colspan="3" class="empty">加载失败：' + escapeHtml(err.message) + "</td></tr>";
+        });
+    }
+
+    function closeCharge() {
+        chargeMask.classList.add("hidden");
+        chargeId = 0;
+    }
+
+    function openCharge(id, name) {
+        chargeId = id;
+        document.getElementById("charge-title").textContent = "分配负责店铺 · " + name;
+        var list = document.getElementById("charge-list");
+        if (!shopChoices.length) {
+            list.innerHTML = '<p class="form-hint">还没有店铺</p>';
+        } else {
+            list.innerHTML = shopChoices.map(function (shop) {
+                var checked = shop.charge_id === id ? " checked" : "";
+                var note = "";
+                if (shop.charge_id && shop.charge_id !== id && shop.charge_name) {
+                    note = '<span class="charge-owner">当前 ' + escapeHtml(shop.charge_name) + "</span>";
+                }
+                return '<label class="charge-item"><input type="checkbox" data-charge-shop="' + shop.id + '"' + checked + ">" +
+                    "<span>" + escapeHtml(shop.name || "未命名店铺") + "</span>" + note + "</label>";
+            }).join("");
+        }
+        chargeMask.classList.remove("hidden");
+    }
+
+    document.getElementById("charge-add").addEventListener("submit", function (event) {
+        event.preventDefault();
+        var input = document.getElementById("charge-name");
+        var name = input.value.trim();
+        if (!name) {
+            showToast("请输入姓名", "error");
+            return;
+        }
+        request("/shop-charges", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name }),
+        }).then(function () {
+            input.value = "";
+            showToast("已添加负责人", "success");
+            loadCharges();
+        }).catch(function (err) {
+            showToast(err.message, "error");
+        });
+    });
+
+    document.getElementById("charge-cancel").addEventListener("click", closeCharge);
+    chargeMask.addEventListener("click", function (event) {
+        if (event.target === chargeMask) closeCharge();
+    });
+    chargeForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (!chargeId) return;
+        var shopIds = [];
+        chargeForm.querySelectorAll("[data-charge-shop]").forEach(function (box) {
+            if (box.checked) shopIds.push(Number(box.getAttribute("data-charge-shop")));
+        });
+        var saveBtn = document.getElementById("charge-save");
+        saveBtn.disabled = true;
+        request("/shop-charges/" + chargeId + "/shops", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ shop_ids: shopIds }),
+        }).then(function () {
+            showToast("负责店铺已保存", "success");
+            closeCharge();
+            loadCharges();
+        }).catch(function (err) {
+            showToast(err.message, "error");
+        }).finally(function () {
+            saveBtn.disabled = false;
+        });
+    });
+    document.getElementById("charge-tbody").addEventListener("click", function (event) {
+        var button = event.target.closest("[data-charge]");
+        if (!button) return;
+        openCharge(Number(button.getAttribute("data-charge")), button.getAttribute("data-charge-name") || "");
+    });
 
     var modal = document.getElementById("member-mask");
     var form = document.getElementById("member-form");
@@ -99,73 +197,7 @@
         });
     });
 
-    var chargeMask = document.getElementById("charge-mask");
-    var chargeForm = document.getElementById("charge-form");
-    var chargeUserId = 0;
-
-    function closeCharge() {
-        chargeMask.classList.add("hidden");
-        chargeUserId = 0;
-    }
-
-    function openCharge(userId, displayName) {
-        chargeUserId = userId;
-        document.getElementById("charge-title").textContent = "分配负责店铺 · " + displayName;
-        var owned = {};
-        shopChoices.forEach(function (shop) {
-            if (shop.user_id === userId) owned[shop.id] = true;
-        });
-        var list = document.getElementById("charge-list");
-        if (!shopChoices.length) {
-            list.innerHTML = '<p class="form-hint">还没有店铺</p>';
-        } else {
-            list.innerHTML = shopChoices.map(function (shop) {
-                var checked = owned[shop.id] ? " checked" : "";
-                var note = "";
-                if (shop.user_id && shop.user_id !== userId && shop.display_name) {
-                    note = '<span class="charge-owner">当前 ' + escapeHtml(shop.display_name) + "</span>";
-                }
-                return '<label class="charge-item"><input type="checkbox" data-charge-shop="' + shop.id + '"' + checked + ">" +
-                    "<span>" + escapeHtml(shop.name || "未命名店铺") + "</span>" + note + "</label>";
-            }).join("");
-        }
-        chargeMask.classList.remove("hidden");
-    }
-
-    document.getElementById("charge-cancel").addEventListener("click", closeCharge);
-    chargeMask.addEventListener("click", function (event) {
-        if (event.target === chargeMask) closeCharge();
-    });
-    chargeForm.addEventListener("submit", function (event) {
-        event.preventDefault();
-        if (!chargeUserId) return;
-        var shopIds = [];
-        chargeForm.querySelectorAll("[data-charge-shop]").forEach(function (box) {
-            if (box.checked) shopIds.push(Number(box.getAttribute("data-charge-shop")));
-        });
-        var saveBtn = document.getElementById("charge-save");
-        saveBtn.disabled = true;
-        request("/account-access/" + chargeUserId + "/shops", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ shop_ids: shopIds }),
-        }).then(function () {
-            showToast("负责店铺已保存", "success");
-            closeCharge();
-            loadAccess();
-        }).catch(function (err) {
-            showToast(err.message, "error");
-        }).finally(function () {
-            saveBtn.disabled = false;
-        });
-    });
-
     document.getElementById("access-tbody").addEventListener("click", function (event) {
-        var chargeBtn = event.target.closest("[data-charge]");
-        if (chargeBtn) {
-            openCharge(Number(chargeBtn.getAttribute("data-charge")), chargeBtn.getAttribute("data-charge-name") || "");
-            return;
-        }
         var button = event.target.closest("[data-access-save]");
         if (!button) return;
         var row = button.closest("tr");
@@ -187,5 +219,8 @@
         });
     });
 
-    D.pages.members = loadAccess;
+    D.pages.members = function () {
+        loadAccess();
+        loadCharges();
+    };
 })();

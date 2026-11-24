@@ -46,17 +46,18 @@
             return (row.name || "").toLowerCase().indexOf(keyword) >= 0 || String(row.shop_id || "").indexOf(keyword) >= 0;
         });
         if (!storeItems.length) {
-            body.innerHTML = '<tr><td colspan="6" class="empty">还没有店铺。请使用插件添加。</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="empty">还没有店铺。请使用插件添加。</td></tr>';
             return;
         }
         if (!rows.length) {
-            body.innerHTML = '<tr><td colspan="6" class="empty">没有符合筛选的店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="empty">没有符合筛选的店铺</td></tr>';
             return;
         }
         body.innerHTML = rows.map(function (row) {
             var left = loginLeft(row.credential_at);
             var mark = left.cls ? '<span class="tag ' + left.cls + '">' + Dash.escapeHtml(left.text) + "</span>" : Dash.escapeHtml(left.text);
-            return "<tr><td>" + Dash.escapeHtml(row.name) + "</td><td>" + Dash.escapeHtml(row.shop_id) +
+            return "<tr><td>" + Dash.escapeHtml(row.name) + "</td><td>" + Dash.escapeHtml(row.charge_name || "—") +
+                "</td><td>" + Dash.escapeHtml(row.shop_id) +
                 "</td><td>" + Dash.escapeHtml(row.owner_account || "") +
                 "</td><td>" + mark +
                 "</td><td>" + statusTag(row.login_status) +
@@ -74,7 +75,7 @@
             fillSelect("store-owner", owners, "全部归属账号");
             paintStores();
         }).catch(function (err) {
-            body.innerHTML = '<tr><td colspan="6" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
     }
 

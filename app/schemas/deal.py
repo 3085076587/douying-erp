@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 class DealShopSeries(BaseModel):
     store_pk: int
     name: str = ""
+    charge_name: str = ""
     pay_gmv: list[int] = Field(default_factory=list)
     user_pay_gmv: list[int] = Field(default_factory=list)
     pay_order_cnt: list[int] = Field(default_factory=list)

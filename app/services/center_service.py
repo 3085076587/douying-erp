@@ -491,7 +491,7 @@ def read_overview(db: Session, preset: str, start: str = "", end: str = "") -> d
     date_type, start_day, end_day = resolve_span(preset, start, end)
     key = _span_key(preset, start_day, end_day)
     payload = _load_overview(key) or {}
-    return {
+    data = {
         "preset": preset,
         "date_type": date_type,
         "start": start_day.isoformat(),
@@ -499,6 +499,8 @@ def read_overview(db: Session, preset: str, start: str = "", end: str = "") -> d
         "updated_at": str(payload.get("updated_at") or ""),
         "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
     }
+    _attach_charge(db, data["items"])
+    return data
 
 
 def _refresh(preset: str, start: str, end: str) -> None:
@@ -840,7 +842,14 @@ def read_shops(db: Session, preset: str, start: str = "", end: str = "") -> dict
         "items": items,
     }
     data.update(center_schedule())
+    _attach_charge(db, data.get("items") or [])
     return data
+
+
+def _attach_charge(db: Session, items: list) -> None:
+    from app.services.shop_owner import stamp_charge
+
+    stamp_charge(db, items)
 
 
 def _refresh_shops(preset: str, start: str, end: str) -> None:
@@ -1183,10 +1192,13 @@ def read_live_products(db: Session, store_pk: int) -> dict:
                 items.append(shaped)
     if raw_rows and not items and not error:
         error = "罗盘返回的商品格式对不上"
+    from app.services.shop_owner import names_by_store
+
     return {
         "store_pk": shop.id,
         "shop_id": shop.shop_id or "",
         "name": shop.name or "",
+        "charge_name": names_by_store(db).get(shop.id, ""),
         "error": (error or "")[:200],
         "items": items,
     }
@@ -1593,6 +1605,7 @@ def read_products(db: Session, preset: str, start: str = "", end: str = "") -> d
             "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
         }
         data.update(center_schedule())
+        _attach_charge(db, data.get("items") or [])
         return data
     if preset == "promotion":
         payload = _load_products("promotion:current") or {}
@@ -1610,6 +1623,7 @@ def read_products(db: Session, preset: str, start: str = "", end: str = "") -> d
             "items": _only_current(list(payload.get("items") or []), {shop.id for shop in _shops(db)}),
         }
         data.update(center_schedule())
+        _attach_charge(db, data.get("items") or [])
         return data
     return _read_product_days(db, preset, start, end)
 
@@ -1749,6 +1763,7 @@ def _read_product_days(db: Session, preset: str, start: str, end: str) -> dict:
         "items": items,
     }
     data.update(center_schedule())
+    _attach_charge(db, items)
     return data
 
 
