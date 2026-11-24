@@ -192,7 +192,6 @@
         var shopText = "当前筛选：" + accountLabel() + " · " + chargeLabel() + " · " + shopLabel() + " · " + timeLabel();
         el("center-shops-filter").textContent = shopText;
         var productText = "当前筛选：" + accountLabel() + " · " + chargeLabel() + " · " + shopLabel() + " · " + timeLabel();
-        if (productData && productData.note && !productIsLive(productData)) productText += "。" + productData.note;
         el("center-products-filter").textContent = productText;
     }
 
