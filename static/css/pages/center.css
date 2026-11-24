@@ -95,8 +95,7 @@
 .center-product-search .form-hint { margin: 0; }
 .center-product-search select,
 .center-product-search input[type="date"],
-.center-product-search input[type="month"],
-#center-product-q {
+.center-product-search input[type="month"] {
     height: 32px;
     padding: 0 10px;
     border: 1px solid var(--border);
@@ -105,16 +104,53 @@
     color: var(--text);
     font-size: 13px;
 }
-#center-product-q { width: 220px; }
 .center-product-search input[type="date"],
 .center-product-search input[type="month"] { width: 148px; }
 .center-product-search select:focus,
 .center-product-search input[type="date"]:focus,
-.center-product-search input[type="month"]:focus,
-#center-product-q:focus {
+.center-product-search input[type="month"]:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(196, 92, 38, 0.12);
+}
+.center-product-q-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    height: 40px;
+    padding: 0 12px 0 14px;
+    border: 2px solid var(--primary);
+    border-radius: 8px;
+    background: #fff4ec;
+    box-shadow: 0 0 0 3px rgba(196, 92, 38, 0.14);
+    white-space: nowrap;
+}
+.center-product-q-box > span {
+    color: var(--primary);
+    font-size: 14px;
+    font-weight: 700;
+}
+#center-product-q {
+    width: 220px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+}
+#center-product-q::placeholder {
+    color: #7a5344;
+    font-weight: 600;
+    opacity: 1;
+}
+#center-product-q:focus { outline: none; }
+.center-product-q-box:focus-within {
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(196, 92, 38, 0.22);
 }
 
 .center-list {
