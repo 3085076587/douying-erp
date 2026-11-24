@@ -1644,11 +1644,13 @@ def _stored_percent(stored: object) -> str:
     return _percent_points(points / 100)
 
 
-def _count_good_percent(good_sum: int, eval_sum: int, positive_days: int, missing_days: int, zero_days: int) -> str:
-    """跨天好评率 = 好评条数之和 / 评价条数之和。条数还没入库时不拿百分数平均。"""
+def _count_good_percent(good_sum: int, eval_sum: int, positive_days: int, missing_days: int, zero_days: int, rate_sum: int) -> str:
+    """跨天好评率。评价条数齐全时用条数相除，否则把已有且不为 0 的每日好评率取平均。"""
     if positive_days > 0 and missing_days == 0 and eval_sum > 0:
         return _percent_points(good_sum * 100 / eval_sum)
-    if positive_days == 0 and zero_days > 0:
+    if positive_days > 0:
+        return _percent_points((rate_sum / positive_days) / 100)
+    if zero_days > 0:
         return "0%"
     return "—"
 
@@ -1674,6 +1676,7 @@ def _read_product_days(db: Session, preset: str, start: str, end: str) -> dict:
             func.sum(DyProductDay.refund_amount).label("refund_amount"),
             func.sum(case((DyProductDay.eval_count > 0, DyProductDay.good_count), else_=0)).label("good_cnt_sum"),
             func.sum(case((DyProductDay.eval_count > 0, DyProductDay.eval_count), else_=0)).label("eval_cnt_sum"),
+            func.sum(case((DyProductDay.good_rate > 0, DyProductDay.good_rate), else_=0)).label("good_rate_sum"),
             func.sum(case((DyProductDay.good_rate > 0, 1), else_=0)).label("good_positive_days"),
             func.sum(case((and_(DyProductDay.good_rate > 0, DyProductDay.eval_count <= 0), 1), else_=0)).label("good_missing_days"),
             func.sum(case((DyProductDay.good_rate == 0, 1), else_=0)).label("good_zero_days"),
@@ -1698,6 +1701,7 @@ def _read_product_days(db: Session, preset: str, start: str, end: str) -> dict:
             totals.c.refund_amount,
             totals.c.good_cnt_sum,
             totals.c.eval_cnt_sum,
+            totals.c.good_rate_sum,
             totals.c.good_positive_days,
             totals.c.good_missing_days,
             totals.c.good_zero_days,
@@ -1743,11 +1747,12 @@ def _read_product_days(db: Session, preset: str, start: str, end: str) -> dict:
                 int(row.good_positive_days or 0),
                 int(row.good_missing_days or 0),
                 int(row.good_zero_days or 0),
+                int(row.good_rate_sum or 0),
             ),
         })
     notes = []
     if not single_day:
-        notes.append("好评率是好评条数除以评价条数。")
+        notes.append("好评率是有评价的那些天取平均，当天为 0 或没有评价的不计入。")
     if start_day < date(2026, 10, 1):
         notes.append("商品日从 2026-10-01 开始入库。")
     if end_day >= date.today():
