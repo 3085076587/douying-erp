@@ -45,6 +45,7 @@
         ["1", "近1天"],
         ["7", "近7天"],
         ["30", "近30天"],
+        ["month", "本月"],
         ["custom", "自定义"]
     ];
     var PRODUCT_OPTIONS = [
@@ -52,6 +53,7 @@
         ["1", "近1天"],
         ["7", "近7天"],
         ["30", "近30天"],
+        ["month", "本月"],
         ["custom", "自定义"]
     ];
 
@@ -87,10 +89,29 @@
         var note = el("center-range-note");
         if (!note) return;
         if (tab === "products") {
-            note.textContent = "实时是首页商品列表今天的商品。近1天、近7天、近30天是另一套商品列表。自定义选开始和结束，最多 90 天。";
+            note.textContent = "实时是首页商品列表今天的商品。近1天、近7天、近30天、本月是另一套商品列表，本月从1号加到昨天。自定义选开始和结束，最多 90 天。";
             return;
         }
-        note.textContent = "默认实时。近 1 天、近 7 天、近 30 天截止到昨天。自定义只能选今天和前 90 天。";
+        note.textContent = "默认实时。近 1 天、近 7 天、近 30 天、本月截止到昨天。自定义只能选今天和前 90 天。";
+    }
+
+    function presetSpan(mode) {
+        var from = shift(0);
+        var to = shift(0);
+        if (mode === "1") {
+            from = shift(-1);
+            to = shift(-1);
+        } else if (mode === "7") {
+            to = shift(-1);
+            from = shift(-7);
+        } else if (mode === "30") {
+            to = shift(-1);
+            from = shift(-30);
+        } else if (mode === "month") {
+            to = shift(-1);
+            from = new Date(to.getFullYear(), to.getMonth(), 1, 12, 0, 0, 0);
+        }
+        return { from: from, to: to };
     }
 
     function fillProductDates(mode, start, end, resetPick) {
@@ -104,8 +125,9 @@
             }
             return;
         }
-        start.value = "";
-        end.value = "";
+        var span = presetSpan(mode);
+        start.value = fmt(span.from);
+        end.value = fmt(span.to);
     }
 
     function fillPresetDates(resetPick) {
@@ -122,20 +144,9 @@
         end.disabled = !custom;
         paintRangeNote();
         if (custom) return;
-        var from = shift(0);
-        var to = shift(0);
-        if (mode === "1") {
-            from = shift(-1);
-            to = shift(-1);
-        } else if (mode === "7") {
-            to = shift(-1);
-            from = shift(-7);
-        } else if (mode === "30") {
-            to = shift(-1);
-            from = shift(-30);
-        }
-        start.value = fmt(from);
-        end.value = fmt(to);
+        var span = presetSpan(mode);
+        start.value = fmt(span.from);
+        end.value = fmt(span.to);
     }
 
     function rangeQuery() {

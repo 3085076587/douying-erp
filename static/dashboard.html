@@ -306,6 +306,7 @@
                             <option value="1">近1天</option>
                             <option value="7">近7天</option>
                             <option value="30">近30天</option>
+                            <option value="month">本月</option>
                             <option value="custom">自定义</option>
                         </select>
                         <input id="center-start" type="date" disabled>
@@ -313,7 +314,7 @@
                         <input id="center-end" type="date" disabled>
                         <button class="btn btn-primary" id="btn-center-query" type="button">查询</button>
                     </div>
-                    <p class="form-hint center-note" id="center-range-note">默认实时。近 1 天、近 7 天、近 30 天截止到昨天。自定义只能选今天和前 90 天。</p>
+                    <p class="form-hint center-note" id="center-range-note">默认实时。近 1 天、近 7 天、近 30 天、本月截止到昨天。自定义只能选今天和前 90 天。</p>
                     <div class="center-summary-box" id="center-summary-box">
                         <p class="form-hint" id="center-schedule"></p>
                         <p class="center-summary-line" id="center-summary"></p>
@@ -700,7 +701,7 @@
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/compensates.js?v=3"></script>
 <script src="/static/js/dashboard/violations.js?v=19"></script>
-<script src="/static/js/dashboard/center.js?v=52"></script>
+<script src="/static/js/dashboard/center.js?v=53"></script>
 <script src="/static/js/dashboard/members.js?v=3"></script>
 </body>
 </html>
