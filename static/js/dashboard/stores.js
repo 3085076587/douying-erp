@@ -38,9 +38,13 @@
     function paintStores() {
         var keyword = document.getElementById("store-search").value.trim().toLowerCase();
         var owner = document.getElementById("store-owner").value;
+        var charge = document.getElementById("store-charge").value;
         var login = document.getElementById("store-login").value;
         var rows = storeItems.filter(function (row) {
             if (owner && (row.owner_account || "") !== owner) return false;
+            var person = (row.charge_name || "").trim();
+            if (charge === "未分配" && person) return false;
+            if (charge && charge !== "未分配" && person !== charge) return false;
             if (login && (row.login_status || "") !== login) return false;
             if (!keyword) return true;
             return (row.name || "").toLowerCase().indexOf(keyword) >= 0 || String(row.shop_id || "").indexOf(keyword) >= 0;
@@ -69,10 +73,17 @@
         Dash.request("/stores").then(function (data) {
             storeItems = data.items || [];
             var owners = [];
+            var charges = [];
+            var hasEmptyCharge = false;
             storeItems.forEach(function (row) {
                 if (row.owner_account && owners.indexOf(row.owner_account) < 0) owners.push(row.owner_account);
+                var person = (row.charge_name || "").trim();
+                if (!person) hasEmptyCharge = true;
+                else if (charges.indexOf(person) < 0) charges.push(person);
             });
+            if (hasEmptyCharge) charges.push("未分配");
             fillSelect("store-owner", owners, "全部归属账号");
+            fillSelect("store-charge", charges, "全部负责人");
             paintStores();
         }).catch(function (err) {
             body.innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
@@ -81,7 +92,7 @@
 
     setInterval(paintStores, 30000);
 
-    ["store-search", "store-owner", "store-login"].forEach(function (id) {
+    ["store-search", "store-owner", "store-charge", "store-login"].forEach(function (id) {
         document.getElementById(id).addEventListener("input", paintStores);
         document.getElementById(id).addEventListener("change", paintStores);
     });

@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/static/css/dashboard.css?v=24">
     <link rel="stylesheet" href="/static/css/pages/violations.css?v=4">
     <link rel="stylesheet" href="/static/css/pages/compensates.css?v=1">
-    <link rel="stylesheet" href="/static/css/pages/center.css?v=20">
+    <link rel="stylesheet" href="/static/css/pages/center.css?v=21">
 </head>
 <body>
 <div class="layout">
@@ -69,6 +69,7 @@
                     <div class="filters">
                         <input id="store-search" type="search" placeholder="搜索店铺名称或店铺ID">
                         <select id="store-owner"><option value="">全部归属账号</option></select>
+                        <select id="store-charge"><option value="">全部负责人</option></select>
                         <select id="store-login">
                             <option value="">全部登录状态</option>
                             <option value="online">在线</option>
@@ -294,6 +295,9 @@
                         <select id="center-account">
                             <option value="">全部账号</option>
                         </select>
+                        <select id="center-charge">
+                            <option value="">全部负责人</option>
+                        </select>
                         <select id="center-shop">
                             <option value="">全部店铺</option>
                         </select>
@@ -328,6 +332,7 @@
                             <span class="center-date-sep">至</span>
                             <input id="deal-end" type="date">
                             <button class="btn btn-primary" id="btn-deal-query" type="button">查询</button>
+                            <select id="deal-charge"><option value="">全部负责人</option></select>
                             <label class="deal-account-label" for="deal-shop-q">店铺</label>
                             <div class="deal-pick" id="deal-pick">
                                 <input id="deal-shop-q" type="text" placeholder="搜索店铺" autocomplete="off" spellcheck="false">
@@ -687,12 +692,12 @@
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
 <script src="/static/js/dashboard/core.js?v=14"></script>
-<script src="/static/js/dashboard/stores.js?v=12"></script>
+<script src="/static/js/dashboard/stores.js?v=13"></script>
 <script src="/static/js/dashboard/accounts.js?v=12"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/compensates.js?v=3"></script>
 <script src="/static/js/dashboard/violations.js?v=19"></script>
-<script src="/static/js/dashboard/center.js?v=51"></script>
+<script src="/static/js/dashboard/center.js?v=52"></script>
 <script src="/static/js/dashboard/members.js?v=3"></script>
 </body>
 </html>

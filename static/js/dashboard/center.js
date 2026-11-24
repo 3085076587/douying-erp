@@ -147,6 +147,12 @@
         return path + "&start=" + encodeURIComponent(start) + "&end=" + encodeURIComponent(end);
     }
 
+    function chargeLabel(id) {
+        var select = el(id || "center-charge");
+        if (!select) return "全部负责人";
+        return select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : "全部负责人";
+    }
+
     function accountLabel() {
         var select = el("center-account");
         return select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : "全部账号";
@@ -172,9 +178,9 @@
     }
 
     function paintShellFilters() {
-        var shopText = "当前筛选：" + accountLabel() + " · " + shopLabel() + " · " + timeLabel();
+        var shopText = "当前筛选：" + accountLabel() + " · " + chargeLabel() + " · " + shopLabel() + " · " + timeLabel();
         el("center-shops-filter").textContent = shopText;
-        var productText = "当前筛选：" + accountLabel() + " · " + shopLabel() + " · " + timeLabel();
+        var productText = "当前筛选：" + accountLabel() + " · " + chargeLabel() + " · " + shopLabel() + " · " + timeLabel();
         if (productData && productData.note && !productIsLive(productData)) productText += "。" + productData.note;
         el("center-products-filter").textContent = productText;
     }
@@ -242,11 +248,40 @@
         tick();
     }
 
+    function matchesCharge(person, wanted) {
+        var name = (person || "").trim();
+        if (!wanted) return true;
+        if (wanted === "未分配") return !name;
+        return name === wanted;
+    }
+
     function shopsOfAccount() {
         var account = el("center-account").value;
+        var charge = el("center-charge") ? el("center-charge").value : "";
         return shops.filter(function (row) {
-            return !account || (row.owner_account || "") === account;
+            if (account && (row.owner_account || "") !== account) return false;
+            return matchesCharge(row.charge_name, charge);
         });
+    }
+
+    function fillCharges(selectId, rows) {
+        var select = el(selectId);
+        if (!select) return;
+        var current = select.value;
+        var names = [];
+        var hasEmpty = false;
+        (rows || []).forEach(function (row) {
+            var person = (row.charge_name || "").trim();
+            if (!person) hasEmpty = true;
+            else if (names.indexOf(person) < 0) names.push(person);
+        });
+        if (hasEmpty) names.push("未分配");
+        var options = ['<option value="">全部负责人</option>'];
+        names.forEach(function (name) {
+            options.push('<option value="' + Dash.escapeHtml(name) + '">' + Dash.escapeHtml(name) + "</option>");
+        });
+        select.innerHTML = options.join("");
+        select.value = names.indexOf(current) >= 0 ? current : "";
     }
 
     function fillAccounts() {
@@ -280,12 +315,14 @@
     function visibleItems(items) {
         var account = el("center-account").value;
         var shopId = el("center-shop").value;
+        var charge = el("center-charge") ? el("center-charge").value : "";
         var allowed = {};
         shopsOfAccount().forEach(function (row) { allowed[String(row.shop_id)] = true; });
         return (items || []).filter(function (item) {
             var id = String(item.shop_id || "");
             if (shopId && id !== shopId) return false;
-            if (account && shops.length && !allowed[id]) return false;
+            if ((account || charge) && shops.length && !allowed[id]) return false;
+            if (!shops.length && !matchesCharge(item.charge_name, charge)) return false;
             return true;
         });
     }
@@ -1313,7 +1350,10 @@
     }
 
     function selectedDealShops(group) {
-        return (group && group.shops) || [];
+        var wanted = el("deal-charge") ? el("deal-charge").value : "";
+        return ((group && group.shops) || []).filter(function (shop) {
+            return matchesCharge(shop.charge_name, wanted);
+        });
     }
 
     function dayCount() {
@@ -1573,7 +1613,9 @@
         var text = (query || "").trim().toLowerCase();
         var items = [{ account: "", label: "全部店铺" }];
         ((dealData && dealData.groups) || []).forEach(function (group) {
-            items.push({ account: group.account || "", label: shopTitle(group.shops) });
+            var rows = selectedDealShops(group);
+            if (!rows.length) return;
+            items.push({ account: group.account || "", label: shopTitle(rows) });
         });
         if (!text) return items;
         return items.filter(function (item) {
@@ -1624,7 +1666,8 @@
         return groups.map(function (group, index) {
             return { group: group, index: index };
         }).filter(function (item) {
-            return !dealAccount || item.group.account === dealAccount;
+            if (dealAccount && item.group.account !== dealAccount) return false;
+            return selectedDealShops(item.group).length > 0;
         });
     }
 
@@ -1632,7 +1675,10 @@
         var board = el("deal-board");
         var shown = visibleDealGroups();
         if (!shown.length) {
-            board.innerHTML = '<p class="empty">还没有可以按抖音号汇总的店铺</p>';
+            var empty = el("deal-charge") && el("deal-charge").value
+                ? "没有这个负责人的店铺"
+                : "还没有可以按抖音号汇总的店铺";
+            board.innerHTML = '<p class="empty">' + empty + "</p>";
             return;
         }
         board.innerHTML = shown.map(function (item) {
@@ -1684,6 +1730,11 @@
             if (data && data.end) endInput.value = data.end;
             syncDealSpan();
             fillDealAccounts();
+            var dealShops = [];
+            ((dealData && dealData.groups) || []).forEach(function (group) {
+                (group.shops || []).forEach(function (shop) { dealShops.push(shop); });
+            });
+            fillCharges("deal-charge", dealShops);
             paintDeals();
         }).catch(function (err) {
             board.innerHTML = '<p class="empty">' + Dash.escapeHtml((err && err.message) || "加载失败") + "</p>";
@@ -1698,6 +1749,7 @@
         return Dash.request("/stores").then(function (data) {
             shops = data.items || [];
             fillAccounts();
+            fillCharges("center-charge", shops);
             fillShops();
             if (latest) paint(latest);
             else paintShellFilters();
@@ -1755,6 +1807,26 @@
             paintHome();
             if (shopData) paintShops();
             if (productData) paintProducts();
+        });
+        el("center-charge").addEventListener("change", function () {
+            fillShops();
+            paintShellFilters();
+            if (latest) paint(latest);
+            paintHome();
+            if (shopData) paintShops();
+            if (productData) paintProducts();
+        });
+        el("deal-charge").addEventListener("change", function () {
+            if (dealAccount) {
+                var groups = (dealData && dealData.groups) || [];
+                var still = groups.some(function (group) {
+                    return group.account === dealAccount && selectedDealShops(group).length > 0;
+                });
+                if (!still) dealAccount = "";
+                syncDealPickInput();
+                closeDealPick();
+            }
+            if (dealData) paintDeals();
         });
         el("center-shop").addEventListener("change", function () {
             paintShellFilters();
