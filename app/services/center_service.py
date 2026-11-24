@@ -1751,8 +1751,6 @@ def _read_product_days(db: Session, preset: str, start: str, end: str) -> dict:
             ),
         })
     notes = []
-    if not single_day:
-        notes.append("好评率是有评价的那些天取平均，当天为 0 或没有评价的不计入。")
     if start_day < date(2026, 10, 1):
         notes.append("商品日从 2026-10-01 开始入库。")
     if end_day >= date.today():
