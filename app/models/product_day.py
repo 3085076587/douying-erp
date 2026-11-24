@@ -28,5 +28,7 @@ class DyProductDay(Base):
     refund_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     refund_rate: Mapped[int] = mapped_column(Integer, nullable=False, default=-1, server_default="-1")
     good_rate: Mapped[int] = mapped_column(Integer, nullable=False, default=-1, server_default="-1")
+    good_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    eval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

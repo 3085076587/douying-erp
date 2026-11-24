@@ -36,6 +36,8 @@ def ensure_product_table() -> None:
                 refund_amount INT NOT NULL DEFAULT 0,
                 refund_rate INT NOT NULL DEFAULT -1,
                 good_rate INT NOT NULL DEFAULT -1,
+                good_count INT NOT NULL DEFAULT 0,
+                eval_count INT NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
                 PRIMARY KEY (id),
@@ -44,6 +46,16 @@ def ensure_product_table() -> None:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         ))
+        names = {
+            row[0]
+            for row in conn.execute(text(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'dy_product_day'"
+            ))
+        }
+        for name, ddl in (("good_count", "INT NOT NULL DEFAULT 0"), ("eval_count", "INT NOT NULL DEFAULT 0")):
+            if name not in names:
+                conn.execute(text(f"ALTER TABLE dy_product_day ADD COLUMN {name} {ddl}"))
 
 
 def sync_yesterday() -> str:
@@ -51,10 +63,7 @@ def sync_yesterday() -> str:
     ensure_product_table()
     day = date.today() - timedelta(days=1)
     ok, fail, skip = _sync_range(day, day)
-    from app.services.product_refund_rate import rebuild_refund_rates
-
-    rate = rebuild_refund_rates()
-    return f"昨天 {day.isoformat()} 成功 {ok} 家，失败 {fail} 家，跳过 {skip} 家。{rate}"
+    return f"昨天 {day.isoformat()} 成功 {ok} 家，失败 {fail} 家，跳过 {skip} 家"
 
 
 def backfill_since_october() -> None:
@@ -74,9 +83,6 @@ def backfill_since_october() -> None:
         f"表内 {int(total or 0)} 行，日期 {span[0]} 至 {span[1]}",
         flush=True,
     )
-    from app.services.product_refund_rate import rebuild_refund_rates
-
-    print(rebuild_refund_rates(), flush=True)
 
 
 def _dates(start: date, end: date) -> list[date]:
@@ -190,6 +196,20 @@ def _stored_rate(node: dict) -> int:
     return int(round(percent * 100))
 
 
+def _review_counts(cell: dict) -> tuple[int, int]:
+    """好评条数来自原站。评价条数用好评条数除以当天好评率还原，0% 的那天不计入。"""
+    good_number, good_unit = _cell_number(_product_value(cell, "good_eval_cnt").get("value"))
+    rate_number, rate_unit = _cell_number(_product_value(cell, "comment_good_eval_ratio").get("value"))
+    good = 0 if good_number is None or good_unit == "6" else max(0, int(round(good_number)))
+    if rate_number is None or rate_unit == "6":
+        return good, 0
+    rate = rate_number if abs(rate_number) <= 2 else rate_number / 100
+    if rate <= 0 or good <= 0:
+        return good, 0
+    total = int(round(good / rate))
+    return good, total if total >= good else good
+
+
 def _stored_count(node: dict) -> int:
     number, unit = _cell_number(node.get("value") if isinstance(node, dict) else None)
     if number is None or unit == "6":
@@ -208,6 +228,7 @@ def _records(view: dict, rows: list[dict], day: date) -> dict[str, dict]:
         product_id = _text_cell(product.get("product_id_value")).strip()[:40]
         if not product_id:
             continue
+        good_count, eval_count = _review_counts(cell)
         found[product_id] = {
             "store_pk": view["id"],
             "shop_id": view["shop_id"][:32],
@@ -220,6 +241,8 @@ def _records(view: dict, rows: list[dict], day: date) -> dict[str, dict]:
             "refund_amount": _stored_count(_product_value(cell, "pay_refund_success_amt")),
             "refund_rate": _stored_rate(_product_value(cell, "pay_refund_ratio")),
             "good_rate": _stored_rate(_product_value(cell, "comment_good_eval_ratio")),
+            "good_count": good_count,
+            "eval_count": eval_count,
             "created_at": now,
             "updated_at": now,
         }

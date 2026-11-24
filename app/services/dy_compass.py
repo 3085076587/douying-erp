@@ -218,6 +218,7 @@ _PRODUCT_INDEXES = ",".join(
         "pay_refund_ratio",
         "pay_refund_success_amt",
         "comment_good_eval_ratio",
+        "good_eval_cnt",
     )
 )
 _PRODUCT_PAGE_SIZE = 10
