@@ -92,6 +92,7 @@ class CenterShopRow(BaseModel):
     good_rate_30d: str = ""
     mid_rate_30d: str = ""
     bad_rate_30d: str = ""
+    quality_return_rate: str = ""
 
 
 class CenterShopList(BaseModel):
@@ -154,6 +155,23 @@ class LiveProductRow(BaseModel):
     refund_rate_1h: str = ""
     refund_amount_1h: str = ""
     refund_order_count_1h: str = ""
+
+
+class QualityReturnRow(BaseModel):
+    product_id: str = ""
+    product_name: str = ""
+    category: str = ""
+    order_count: str = ""
+    contribute_rate: str = ""
+    reasons: str = ""
+
+
+class QualityReturnList(BaseModel):
+    store_pk: int
+    shop_id: str = ""
+    name: str = ""
+    error: str = ""
+    items: list[QualityReturnRow]
 
 
 class LiveProductList(BaseModel):

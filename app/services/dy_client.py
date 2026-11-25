@@ -146,13 +146,23 @@ def list_subjects(cookies: dict[str, str]) -> list[dict]:
 
 
 def touch_session(cookies: dict[str, str]) -> None:
-    """访问会话检查，并把抖店回写的凭证并进这个字典。调用方负责落库。"""
-    request_shop(
+    """访问会话检查，并把抖店回写的凭证并进这个字典。调用方负责落库。
+
+    外层 code 为 0 只说明接口通了。check_code 为 1 才是已经进店。
+    没进店时体验分、进店名单都会说登录失效，这种凭证按失效处理。
+    """
+    data = request_shop(
         cookies,
         "GET",
         "/ecomauth/loginv1/session_check",
         params={"login_source": "doudian_pc_web", "bus_type": "1"},
     )
+    try:
+        check_code = int(data.get("check_code") or 0) if isinstance(data, dict) else 0
+    except (TypeError, ValueError):
+        check_code = 0
+    if check_code != 1:
+        raise ShopAuthError("登录凭证已失效")
 
 
 def enter_listed_shop(
@@ -250,8 +260,9 @@ def _enter_listed_shop(
 
 
 def session_alive(cookies: dict[str, str]) -> bool:
+    """凭证还能进这家店才算在线。接口通了但没进店，算掉线。"""
     try:
-        request_shop(cookies, "GET", "/ecomauth/loginv1/session_check", params={"login_source": "doudian_pc_web", "bus_type": "1"})
+        touch_session(cookies)
         return True
     except (ShopAuthError, ShopApiError):
         return False

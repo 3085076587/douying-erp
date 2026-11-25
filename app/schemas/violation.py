@@ -18,6 +18,7 @@ class ViolationRow(BaseModel):
     store_pk: int
     shop_id: str = ""
     shop_name: str = ""
+    legal_person: str = ""
     violation_id: str = ""
     violated_at: str = ""
     due_date: str = ""  # 处罚到期日（违规时间 + 处罚天数），处罚没有天数时为空
@@ -90,6 +91,7 @@ class ViolationOptions(BaseModel):
     penalties: list[ViolationOptionItem] = []
     statuses: list[ViolationOptionItem] = []
     accounts: list[str] = []
+    legal_persons: list[str] = []
 
 
 class ViolationProgress(BaseModel):

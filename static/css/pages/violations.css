@@ -147,17 +147,19 @@
 #vio-table tbody tr { transition: background 0.15s ease; }
 
 /* 列宽：合计 100%，不需要横向滚动 */
-#vio-table .vio-col-shop { width: 8%; }
+#vio-table .vio-col-shop { width: 7%; }
+#vio-table .vio-col-legal { width: 6%; }
 #vio-table .vio-col-time { width: 9%; }
 #vio-table .vio-col-id { width: 10%; }
 #vio-table .vio-col-type { width: 12%; }
-#vio-table .vio-col-penalty { width: 16%; }
+#vio-table .vio-col-penalty { width: 14%; }
 #vio-table .vio-col-due { width: 9.5%; }
-#vio-table .vio-col-desc { width: 18.5%; }
+#vio-table .vio-col-desc { width: 15.5%; }
 #vio-table .vio-col-status { width: 8.5%; }
 #vio-table .vio-col-op { width: 8.5%; }
 
 #vio-table td.vio-shop { font-weight: 500; }
+#vio-table td.vio-legal { white-space: nowrap; }
 #vio-table td.vio-time { white-space: nowrap; }
 #vio-table td.vio-time .vio-date,
 #vio-table td.vio-due .vio-date { display: block; font-variant-numeric: tabular-nums; }

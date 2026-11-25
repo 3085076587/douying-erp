@@ -7,7 +7,7 @@
     <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/dashboard.css?v=24">
-    <link rel="stylesheet" href="/static/css/pages/violations.css?v=4">
+    <link rel="stylesheet" href="/static/css/pages/violations.css?v=5">
     <link rel="stylesheet" href="/static/css/pages/compensates.css?v=1">
     <link rel="stylesheet" href="/static/css/pages/center.css?v=25">
 </head>
@@ -228,6 +228,9 @@
                         <select id="vio-account">
                             <option value="">全部抖音</option>
                         </select>
+                        <select id="vio-legal">
+                            <option value="">全部法人</option>
+                        </select>
                         <div class="vio-multiselect" id="vio-shop-select">
                             <button class="vio-ms-btn" id="vio-shop-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
                                 <span id="vio-shop-label">请选择店铺</span>
@@ -271,6 +274,7 @@
                             <thead>
                             <tr>
                                 <th class="vio-col-shop">店铺</th>
+                                <th class="vio-col-legal">法人</th>
                                 <th class="sortable vio-col-time" data-sort="violated_at">违规时间</th>
                                 <th class="vio-col-id">违规编号</th>
                                 <th class="vio-col-type">违规类型</th>
@@ -406,6 +410,7 @@
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="order_count" data-sort-label="成交订单数">成交订单数</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="refund_rate" data-sort-label="退款率（支付时间）">退款率（支付时间）</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="refund_amount" data-sort-label="成交退款金额（支付时间）">成交退款金额（支付时间）</button></th>
+                                    <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="quality_return_rate" data-sort-label="商品品质退货率">商品品质退货率</button></th>
                                     <th>明细</th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="good_rate_30d" data-sort-label="近30天好评率">近30天好评率</button></th>
                                     <th><button type="button" class="center-sort" data-sort-for="shops" data-sort-key="mid_rate_30d" data-sort-label="近30天中评率">近30天中评率</button></th>
@@ -413,7 +418,7 @@
                                 </tr>
                                 </thead>
                                 <tbody id="center-shops-tbody">
-                                <tr><td colspan="18" class="empty">打开后加载</td></tr>
+                                <tr><td colspan="19" class="empty">打开后加载</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -628,7 +633,7 @@
 <div id="live-mask" class="mask hidden">
     <div class="dialog live-dialog" role="dialog" aria-labelledby="live-title">
         <div class="live-head">
-            <h2 id="live-title">商品实时</h2>
+            <h2 id="live-title">商品品质退货率</h2>
             <button class="btn" id="live-close" type="button">关闭</button>
         </div>
         <p id="live-note" class="form-hint"></p>
@@ -637,26 +642,14 @@
                 <thead>
                 <tr>
                     <th>商品</th>
-                    <th>用户支付金额</th>
-                    <th>曝光人数</th>
-                    <th>成交金额</th>
-                    <th>成交订单数</th>
-                    <th>投放消耗（店铺维度）</th>
-                    <th>退款金额</th>
-                    <th>退款订单数</th>
-                    <th>退款率</th>
-                    <th>成交人数</th>
-                    <th>客单价</th>
-                    <th>实时可售库存</th>
-                    <th>净成交金额</th>
-                    <th>净成交订单</th>
-                    <th>1小时退款率</th>
-                    <th>1小时退款金额</th>
-                    <th>1小时退款订单数</th>
+                    <th>类目</th>
+                    <th>退货订单数</th>
+                    <th>贡献占比</th>
+                    <th>原因</th>
                 </tr>
                 </thead>
                 <tbody id="live-tbody">
-                <tr><td colspan="7" class="empty">正在获取…</td></tr>
+                <tr><td colspan="5" class="empty">正在获取…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -700,8 +693,8 @@
 <script src="/static/js/dashboard/accounts.js?v=12"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/compensates.js?v=3"></script>
-<script src="/static/js/dashboard/violations.js?v=19"></script>
-<script src="/static/js/dashboard/center.js?v=56"></script>
+<script src="/static/js/dashboard/violations.js?v=20"></script>
+<script src="/static/js/dashboard/center.js?v=57"></script>
 <script src="/static/js/dashboard/members.js?v=3"></script>
 </body>
 </html>

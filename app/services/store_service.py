@@ -365,7 +365,7 @@ def renew_cookies() -> int:
                     continue
                 failed += 1
                 shop.login_status = "offline"
-                write_fail(f"登录凭证维护 {shop.name}", str(exc) or "会话已失效")
+                write_fail(f"登录凭证维护 {shop.name}", str(exc) or "登录凭证已失效")
                 continue
             except ShopApiError as exc:
                 failed += 1

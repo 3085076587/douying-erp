@@ -1,7 +1,7 @@
 """抖店违规与预警：拉取、缓存、入库和查询。
 
-每家店单独向抖店拉取。10 分钟内重复拉取直接用上次的结果，
-点「拉取最新数据」会丢掉缓存马上更新。记录写进 MySQL，页面查询读库。
+页面按所选日期读库。10 分钟任务和启动预热只向抖店要今天。
+每天 00:01 再把昨天拉一次入库。点「拉取最新数据」按页面上的日期重拉。
 店铺直接用现有的 dy_shop，登录凭证也是现成的，不用重新登录。
 """
 from __future__ import annotations
@@ -404,9 +404,17 @@ def begin_warmup() -> None:
 
 
 def default_range() -> tuple[date, date]:
-    """默认近 30 天。"""
+    """页面打开时看的范围：近 30 天。定时抓取不用这个范围。"""
     today = date.today()
     return today - timedelta(days=30), today
+
+
+def today_text() -> str:
+    return date.today().isoformat()
+
+
+def yesterday_text() -> str:
+    return (date.today() - timedelta(days=1)).isoformat()
 
 
 def _parse_date(value: str) -> date:
@@ -451,6 +459,7 @@ def _query_violations(
     store_pk: int = 0,
     store_pks: list[int] | None = None,
     account: str = "",
+    legal_person: str = "",
     type_values: list[str] | None = None,
     status: str = "",
     start_date: str = "",
@@ -462,13 +471,15 @@ def _query_violations(
     type_values 传的是库里存着的原始违规类型文本；页面上选了「清洗后的原因」时，
     由 type_value_map() 先换算成它对应的那些原文。
     """
-    query = select(DyViolation, Shop.name).join(Shop, DyViolation.store_pk == Shop.id, isouter=True)
+    query = select(DyViolation, Shop.name, Shop.legal_person).join(Shop, DyViolation.store_pk == Shop.id, isouter=True)
     if store_pks:
         query = query.where(DyViolation.store_pk.in_(store_pks))
     elif store_pk:
         query = query.where(DyViolation.store_pk == store_pk)
     if account:
         query = query.where(Shop.owner_account == account)
+    if legal_person:
+        query = query.where(Shop.legal_person == legal_person)
     if type_values:
         query = query.where(DyViolation.violation_type.in_(type_values))
     if status:
@@ -498,6 +509,7 @@ def list_violations(
     store_pk: int = 0,
     store_pks: list[int] | None = None,
     account: str = "",
+    legal_person: str = "",
     violation_type: str = "",
     penalty: str = "",
     status: str = "",
@@ -518,11 +530,12 @@ def list_violations(
 
     today = date.today()
     rows = []
-    for item, shop_name in _query_violations(
+    for item, shop_name, person in _query_violations(
         db,
         store_pk=store_pk,
         store_pks=store_pks,
         account=account,
+        legal_person=legal_person,
         type_values=type_values,
         status=status,
         start_date=start_date,
@@ -549,6 +562,7 @@ def list_violations(
                 "store_pk": item.store_pk,
                 "shop_id": item.shop_id,
                 "shop_name": shop_name or "",
+                "legal_person": person or "",
                 "violation_id": item.violation_id,
                 "violated_at": item.violated_at.strftime("%Y-%m-%d %H:%M:%S") if item.violated_at else "",
                 "due_date": due_text,
@@ -609,6 +623,7 @@ def options(
     store_pk: int = 0,
     store_pks: list[int] | None = None,
     account: str = "",
+    legal_person: str = "",
     violation_type: str = "",
     penalty: str = "",
     status: str = "",
@@ -638,6 +653,7 @@ def options(
         store_pk=store_pk,
         store_pks=store_pks,
         account=account,
+        legal_person=legal_person,
         start_date=start_date,
         end_date=end_date,
     )
@@ -645,7 +661,7 @@ def options(
     type_counts = {key: 0 for key in mapping if key}
     penalty_counts = {name: 0 for name in penalty_all}
     status_counts = {name: 0 for name in status_all}
-    for item, _shop_name in base:
+    for item, _shop_name, _person in base:
         categories = penalty_categories(item.penalty)
         key = clean_violation_type(item.violation_type)
         type_ok = not violation_type or key == violation_type
@@ -668,12 +684,18 @@ def options(
     shops = [row.name or row.shop_id for row in db.scalars(select(Shop).order_by(Shop.id.asc()))]
     # 抖音账号：抖店的登录账号（owner_account），后续加了新账号会自动出现在下拉里
     accounts = [a for a in db.scalars(select(Shop.owner_account).distinct().order_by(Shop.owner_account)) if a]
+    legal_persons = [
+        name
+        for name in db.scalars(select(Shop.legal_person).distinct().order_by(Shop.legal_person))
+        if name
+    ]
     return {
         "shops": shops,
         "types": types,
         "penalties": [{"value": name, "count": penalty_counts.get(name, 0)} for name in penalty_all],
         "statuses": statuses,
         "accounts": accounts,
+        "legal_persons": legal_persons,
     }
 
 
@@ -839,6 +861,39 @@ def _do_refresh(start_date: str, end_date: str, trigger: str) -> None:
     """真正干活：拉一遍、写进度、写状态。调用前需要先拿到 _JOB 锁。"""
     start_ts, end_ts = _ts_range(start_date, end_date)
     _refresh_all(start_ts, end_ts, force=True, trigger=trigger)
+
+
+def sync_yesterday() -> dict:
+    """每天 00:01 把昨天的违规再拉一次入库。和今天的 10 分钟任务共用一把锁。"""
+    day = yesterday_text()
+    if not _JOB.acquire(timeout=30 * 60):
+        message = "昨天的违规没有入库，今天的更新还在进行"
+        with _PROGRESS:
+            _PROGRESS_SLOT.update(running=False, message=message, failed=1)
+        write_state(
+            last_update=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            last_message=message,
+            last_failed=1,
+            last_ok=False,
+            last_trigger="schedule",
+        )
+        return progress()
+    try:
+        _do_refresh(day, day, "schedule")
+    except Exception:
+        _LOG.exception("违规与预警昨天入库失败")
+        with _PROGRESS:
+            _PROGRESS_SLOT["running"] = False
+            _PROGRESS_SLOT["message"] = "昨天的违规没有入库，请查看服务端日志"
+        write_state(
+            last_update=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            last_message="昨天的违规没有入库",
+            last_ok=False,
+            last_trigger="schedule",
+        )
+    finally:
+        _JOB.release()
+    return progress()
 
 
 def run_refresh_sync(start_date: str = "", end_date: str = "", trigger: str = "schedule") -> dict:

@@ -726,17 +726,19 @@
         var items = (data && data.items) || [];
         var note = el("live-note");
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="17" class="empty">'
-                + Dash.escapeHtml((data && data.error) || "这家店现在没有商品数据") + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="5" class="empty">'
+                + Dash.escapeHtml((data && data.error) || "这家店没有商品品质退货明细") + "</td></tr>";
             note.textContent = "";
             return;
         }
-        var who = data && data.charge_name ? ("负责人 " + data.charge_name + "。") : "";
-        note.textContent = data.error ? ("后面的页没有拿全：" + data.error) : (who + "实时数据，不会保存");
+        note.textContent = data.error || "";
         body.innerHTML = items.map(function (item) {
             return "<tr><td class=\"center-product-name\">" + Dash.escapeHtml(item.product_name || "未命名商品")
-                + "<div class=\"center-home-id\">" + Dash.escapeHtml(item.product_id || "") + "</div></td>"
-                + liveMetricCells(item) + "</tr>";
+                + '<div class="center-home-id">ID ' + Dash.escapeHtml(item.product_id || "") + "</div></td>"
+                + "<td>" + Dash.escapeHtml(item.category || "—") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.order_count || "—") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.contribute_rate || "—") + "</td>"
+                + "<td>" + Dash.escapeHtml(item.reasons || "—") + "</td></tr>";
         }).join("");
     }
 
@@ -746,17 +748,17 @@
 
     function openLive(storePk, shopName) {
         var mask = el("live-mask");
-        el("live-title").textContent = (shopName || "店铺") + " 商品实时";
-        el("live-note").textContent = "正在获取实时商品…";
-        el("live-tbody").innerHTML = '<tr><td colspan="17" class="empty">正在获取…</td></tr>';
+        el("live-title").textContent = (shopName || "店铺") + " 商品品质退货率";
+        el("live-note").textContent = "正在获取…";
+        el("live-tbody").innerHTML = '<tr><td colspan="5" class="empty">正在获取…</td></tr>';
         mask.classList.remove("hidden");
-        Dash.request("/center/shops/" + storePk + "/live-products").then(function (data) {
+        Dash.request("/center/shops/" + storePk + "/quality-returns").then(function (data) {
             if (mask.classList.contains("hidden")) return;
             paintLive(data);
         }).catch(function (err) {
             if (mask.classList.contains("hidden")) return;
             el("live-note").textContent = "";
-            el("live-tbody").innerHTML = '<tr><td colspan="17" class="empty">'
+            el("live-tbody").innerHTML = '<tr><td colspan="5" class="empty">'
                 + Dash.escapeHtml(err.message || "获取失败") + "</td></tr>";
         });
     }
@@ -890,11 +892,11 @@
         paintSortMarks();
         paintHeadSummary(items);
         if (!(shopData.items && shopData.items.length)) {
-            body.innerHTML = '<tr><td colspan="18" class="empty">还没有店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="19" class="empty">还没有店铺</td></tr>';
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="18" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            body.innerHTML = '<tr><td colspan="19" class="empty">没有符合当前账号和店铺的数据</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (item) {
@@ -912,10 +914,12 @@
             var rates = metricCell(item.good_rate_30d)
                 + metricCell(item.mid_rate_30d)
                 + metricCell(item.bad_rate_30d);
+            var quality = '<td><div class="center-shop-value">' + Dash.escapeHtml(item.quality_return_rate || "—") + "</div></td>";
             var detail = "<td>" + liveCell(item) + "</td>";
             if (item.sync_error) {
                 return "<tr>" + name + charge + state + scores + login
                     + '<td colspan="4" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td>"
+                    + quality
                     + detail
                     + rates + "</tr>";
             }
@@ -924,6 +928,7 @@
                 + metricCell(item.order_count)
                 + metricCell(item.refund_rate)
                 + metricCell(item.refund_amount)
+                + quality
                 + detail
                 + rates
                 + "</tr>";
@@ -1253,9 +1258,9 @@
                 paintShops();
                 return;
             }
-            el("center-shops-tbody").innerHTML = '<tr><td colspan="18" class="empty">正在准备，启动后会先更新一次</td></tr>';
+            el("center-shops-tbody").innerHTML = '<tr><td colspan="19" class="empty">正在准备，启动后会先更新一次</td></tr>';
         }).catch(function () {
-            el("center-shops-tbody").innerHTML = '<tr><td colspan="18" class="empty">正在准备，启动后会先更新一次</td></tr>';
+            el("center-shops-tbody").innerHTML = '<tr><td colspan="19" class="empty">正在准备，启动后会先更新一次</td></tr>';
         });
     }
 

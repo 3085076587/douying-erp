@@ -9,6 +9,7 @@ from app.services.deal_overview import DealRangeError, list_deals
 from app.schemas.center import (
     CenterHomeList,
     LiveProductList,
+    QualityReturnList,
     CenterOverviewList,
     CenterProgress,
     CenterProductList,
@@ -21,6 +22,7 @@ from app.services.center_service import (
     product_progress,
     progress,
     read_live_products,
+    read_quality_returns,
     read_overview,
     read_products,
     read_shops,
@@ -112,6 +114,19 @@ def shops(
     except (ShopApiError, ShopAuthError) as exc:
         raise _shop_error(exc) from exc
     return CenterShopList.model_validate(data)
+
+
+@router.get("/shops/{store_pk}/quality-returns", response_model=QualityReturnList, summary="一家店的商品品质退货率明细")
+def shop_quality_returns(
+    store_pk: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_section("center")),
+) -> QualityReturnList:
+    try:
+        data = read_quality_returns(db, store_pk)
+    except (ShopApiError, ShopAuthError) as exc:
+        raise _shop_error(exc) from exc
+    return QualityReturnList.model_validate(data)
 
 
 @router.get("/shops/{store_pk}/live-products", response_model=LiveProductList, summary="一家店的实时商品")

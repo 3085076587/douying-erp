@@ -105,7 +105,8 @@ async def _refresh_loop() -> None:
 
 async def _violation_once(minutes: int) -> None:
     write_start("违规与预警")
-    await asyncio.to_thread(violation_service.run_refresh_sync, "", "", "schedule")
+    today = violation_service.today_text()
+    await asyncio.to_thread(violation_service.run_refresh_sync, today, today, "schedule")
     state = violation_service.progress()
     message = str(state.get("message") or "完成")
     failed = int(state.get("failed") or 0)
@@ -118,16 +119,14 @@ async def _violation_once(minutes: int) -> None:
 
 
 async def _violation_loop() -> None:
-    """违规与预警定时更新：启动后先预热一次，之后每 VIOLATION_REFRESH_MINUTES 分钟再拉。
+    """违规与预警：启动后先预热今天，之后每 VIOLATION_REFRESH_MINUTES 分钟再拉今天。
 
-    - 启动预热：Redis 里这份数据还在 10 分钟内就跳过，否则约 20 秒后开始拉；
-    - 预热完成后仍按上次更新时间推算下一轮，间隔不变；
-    - 每次开始/成功/失败都写 logs/schedule.log，更新完成时间写 logs/violation_scheduler_state.json；
-    - 页面上的「数据10分钟更新一次，上一次更新 xxx，下次更新 xxx」就读这个状态文件。
+    近 30 天的列表读库。昨天由每天 00:01 的任务入库，这里不再回抓历史。
+    启动预热：10 分钟内刚更新过就跳过，否则约 20 秒后开始拉今天。
     """
     minutes = violation_service.schedule_minutes()
-    logger.info("违规与预警定时更新已启动，启动后预热一次，之后每 %s 分钟一次", minutes)
-    write_start(f"违规与预警，启动后预热，之后每 {minutes} 分钟一次")
+    logger.info("违规与预警定时更新已启动，预热和之后每 %s 分钟只拉今天", minutes)
+    write_start(f"违规与预警，预热和之后每 {minutes} 分钟只拉今天")
     first = True
     while True:
         try:
@@ -223,6 +222,31 @@ def _seconds_until_clock(hour: int, minute: int) -> float:
     if target <= now:
         target += timedelta(days=1)
     return max(5.0, (target - now).total_seconds())
+
+
+async def _violation_day_loop() -> None:
+    """违规与预警：每天 00:01 把昨天再拉一次入库。当天仍由 10 分钟任务更新。"""
+    logger.info("违规与预警已启动，每天 00:01 拉昨天入库")
+    write_start("违规与预警，每天 00:01 拉昨天入库")
+    while True:
+        try:
+            await asyncio.sleep(_seconds_until_clock(0, 1))
+            write_start("违规与预警昨天")
+            state = await asyncio.to_thread(violation_service.sync_yesterday)
+            message = str(state.get("message") or "完成")
+            failed = int(state.get("failed") or 0)
+            if failed:
+                write_fail("违规与预警昨天", message)
+                logger.warning("违规与预警昨天入库有失败：%s", message)
+            else:
+                write_success(f"违规与预警昨天 {message}")
+                logger.info("违规与预警昨天 %s", message)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("违规与预警昨天入库失败")
+            write_fail("违规与预警昨天")
+            await asyncio.sleep(60)
 
 
 async def _deal_day_loop() -> None:
@@ -410,6 +434,7 @@ async def lifespan(_: FastAPI):
     center_task = asyncio.create_task(_center_loop())
     refresh_task = asyncio.create_task(_refresh_loop())
     violation_task = asyncio.create_task(_violation_loop())
+    violation_day_task = asyncio.create_task(_violation_day_loop())
     home_task = asyncio.create_task(_home_loop())
     invoice_task = asyncio.create_task(_invoice_loop())
     compensate_task = asyncio.create_task(_compensate_loop())
@@ -423,6 +448,7 @@ async def lifespan(_: FastAPI):
         center_task.cancel()
         refresh_task.cancel()
         violation_task.cancel()
+        violation_day_task.cancel()
         home_task.cancel()
         invoice_task.cancel()
         compensate_task.cancel()

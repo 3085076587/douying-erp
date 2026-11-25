@@ -245,7 +245,7 @@
         focusPk = "";
         pinnedIds = focusIds;
         focusIds = "";
-        ["vio-type", "vio-penalty", "vio-status", "vio-due"].forEach(function (id) {
+        ["vio-legal", "vio-type", "vio-penalty", "vio-status", "vio-due"].forEach(function (id) {
             if (el(id)) el(id).value = "";
         });
         boxes.forEach(function (box) { box.checked = box.value === target; });
@@ -264,6 +264,7 @@
         if (ids.length) params.set("store_pks", ids.join(","));
         else params.set("store_pk", "0");
         params.set("account", el("vio-account").value || "");
+        params.set("legal_person", el("vio-legal").value || "");
         params.set("violation_type", el("vio-type").value || "");
         params.set("penalty", el("vio-penalty").value || "");
         params.set("status", el("vio-status").value || "");
@@ -281,6 +282,7 @@
             if (mySeq !== seq) return;
             // 抖音账号：目前只有一个，以后加了账号这里会自动多出选项
             fillSelect(el("vio-account"), data.accounts || []);
+            fillSelect(el("vio-legal"), data.legal_persons || []);
             // 违规类型、处罚方式、状态都跟着条件联动
             fillSelect(el("vio-type"), data.types || []);
             fillSelect(el("vio-penalty"), data.penalties || []);
@@ -296,7 +298,7 @@
         var params = filterParams();
         params.set("due", el("vio-due").value || "");
         var mySeq = ++seq;
-        if (!silent) body.innerHTML = '<tr><td colspan="9" class="empty"><span class="vio-spinner"></span>加载中…</td></tr>';
+        if (!silent) body.innerHTML = '<tr><td colspan="10" class="empty"><span class="vio-spinner"></span>加载中…</td></tr>';
         Dash.request("/violations?" + params.toString()).then(function (data) {
             if (mySeq !== seq) return; // 已经有更新的查询了，丢掉旧结果
             items = data.items || [];
@@ -304,7 +306,7 @@
             refreshOptions();
         }).catch(function (err) {
             if (mySeq !== seq) return;
-            body.innerHTML = '<tr><td colspan="9" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="10" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
         el("btn-query-violations").classList.remove("is-dirty");
     }
@@ -385,12 +387,13 @@
             + (revoked ? "，<b class=\"vio-count-num\">" + revoked + "</b> 条违规已撤销" : "")
             + "。";
         if (!rows.length) {
-            body.innerHTML = '<tr><td colspan="9" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
+            body.innerHTML = '<tr><td colspan="10" class="empty">没有查到违规记录。抖店后台这批店铺在当前时间范围内没有违规，可换个时间范围或点「拉取最新数据」重新核对。</td></tr>';
             return;
         }
         body.innerHTML = rows.map(function (row) {
             return "<tr>"
                 + "<td class=\"vio-shop\">" + Dash.escapeHtml(row.shop_name || row.shop_id) + "</td>"
+                + "<td class=\"vio-legal\">" + Dash.escapeHtml(row.legal_person || "—") + "</td>"
                 + timeCell(row.violated_at)
                 + "<td class=\"vio-id\">" + Dash.escapeHtml(row.violation_id || "—") + "</td>"
                 + "<td class=\"vio-type\" title=\"" + Dash.escapeHtml(row.violation_type_raw || row.violation_type || "") + "\">"
@@ -497,7 +500,7 @@
         clearPinned();
         query(false);
     });
-    ["vio-account", "vio-type", "vio-penalty", "vio-status"].forEach(function (id) {
+    ["vio-account", "vio-legal", "vio-type", "vio-penalty", "vio-status"].forEach(function (id) {
         el(id).addEventListener("change", function () {
             clearPinned();
             autoApply();

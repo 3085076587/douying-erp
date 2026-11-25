@@ -23,7 +23,7 @@ from app.services.dy_compass import (
     fetch_product_list,
     fetch_promotion_window,
 )
-from app.services.dy_shop_quality import QUALITY_FIELDS, fetch_shop_quality
+from app.services.dy_shop_quality import QUALITY_FIELDS, fetch_quality_return_details, fetch_shop_quality
 from app.services.fetch_pace import limited_shop_ids, merge_kept, prefer_limited, take_turns
 from app.services.schedule_log import write_fail, write_success
 from app.services.store_service import keep_shop_jar
@@ -1170,6 +1170,35 @@ def _live_number(info: dict, code: str) -> float | None:
     if number is None or unit == "6":
         return None
     return number
+
+
+def read_quality_returns(db: Session, store_pk: int) -> dict:
+    """点店铺明细的「明细」时现拉这家店的商品品质退货率。不写缓存。"""
+    shop = db.get(Shop, store_pk)
+    if shop is None:
+        raise ShopApiError("没有这家店")
+    payload = {
+        "store_pk": shop.id,
+        "shop_id": shop.shop_id or "",
+        "name": shop.name or "",
+        "error": "",
+        "items": [],
+    }
+    cookies = cookies_for(cookie_store(shop.cookie_data), FXG_HOST)
+    if not cookies or shop.shop_cookie != 1:
+        payload["error"] = "还没有这家店的登录凭证"
+        return payload
+    try:
+        items, _note = fetch_quality_return_details(cookies)
+        payload["items"] = items
+    except ShopAuthError as exc:
+        payload["error"] = str(exc) or "登录已失效"
+    except ShopApiError as exc:
+        payload["error"] = exc.message or "没有拉到商品品质退货率"
+    finally:
+        keep_shop_jar(shop, cookies)
+        db.commit()
+    return payload
 
 
 def read_live_products(db: Session, store_pk: int) -> dict:
