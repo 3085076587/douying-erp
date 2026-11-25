@@ -848,8 +848,10 @@ def read_shops(db: Session, preset: str, start: str = "", end: str = "") -> dict
 
 def _attach_charge(db: Session, items: list) -> None:
     from app.services.shop_owner import stamp_charge
+    from app.services.violation_service import stamp_shop_state
 
     stamp_charge(db, items)
+    stamp_shop_state(db, items)
 
 
 def _refresh_shops(preset: str, start: str, end: str) -> None:

@@ -189,6 +189,12 @@
 .live-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .live-table-wrap { max-height: 70vh; overflow: auto; }
 .center-home-id { color: #999; font-size: 12px; font-weight: 400; }
+.shop-state { white-space: nowrap; vertical-align: top; }
+.shop-state-name { font-weight: 600; }
+.shop-state-name.ok { color: #16803c; }
+.shop-state-name.warn { color: #ca8a04; }
+.shop-state-name.bad { color: #dc2626; }
+.shop-state-due { margin-top: 2px; color: #888; font-size: 12px; font-weight: 400; }
 .center-shop-value { font-weight: 600; }
 .center-score-change { margin-top: 2px; color: #888; font-size: 12px; font-weight: 400; white-space: nowrap; }
 .center-score-change.up { color: #30a46c; }

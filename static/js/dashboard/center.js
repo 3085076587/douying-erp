@@ -492,6 +492,17 @@
         return value === "" || value == null ? "—" : String(value);
     }
 
+    function shopStateCell(item) {
+        var label = item.shop_state || "正常";
+        var due = item.shop_state_due || "";
+        var tone = label === "已清退" || label === "停业整顿中" ? "bad" : (label === "限单中" ? "warn" : "ok");
+        var html = '<td class="shop-state"><div class="shop-state-name ' + tone + '">' + Dash.escapeHtml(label) + "</div>";
+        if (label !== "正常" && due) {
+            html += '<div class="shop-state-due">到期时间 ' + Dash.escapeHtml(due) + "</div>";
+        }
+        return html + "</td>";
+    }
+
     function paintHome() {
         if (!homeData) return;
         var body = el("center-home-tbody");
@@ -499,7 +510,7 @@
         paintSortMarks();
         paintHeadSummary(items);
         if (!(homeData.items && homeData.items.length)) {
-            body.innerHTML = '<tr><td colspan="10" class="empty">还没有店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="11" class="empty">还没有店铺</td></tr>';
             return;
         }
         var homeCached = !!homeData.updated_at || (homeData.items || []).some(function (item) {
@@ -508,25 +519,26 @@
                 || item.pending_violation || item.sync_error;
         });
         if (!homeCached) {
-            body.innerHTML = '<tr><td colspan="10" class="empty">正在准备，启动后会先更新一次</td></tr>';
+            body.innerHTML = '<tr><td colspan="11" class="empty">正在准备，启动后会先更新一次</td></tr>';
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="10" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            body.innerHTML = '<tr><td colspan="11" class="empty">没有符合当前账号和店铺的数据</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (item) {
             var name = "<td>" + Dash.escapeHtml(item.name || "未命名店铺")
                 + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
             var charge = "<td>" + Dash.escapeHtml(item.charge_name || "—") + "</td>";
+            var state = shopStateCell(item);
             var login = "<td>" + loginTag(item.login_status) + "</td>";
             if (item.sync_error) {
-                return "<tr>" + name + charge + login + '<td colspan="7" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
+                return "<tr>" + name + charge + state + login + '<td colspan="7" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
             }
             var violation = '<td><button type="button" class="center-jump" data-vio-shop="'
                 + Dash.escapeHtml(String(item.store_pk)) + '">'
                 + Dash.escapeHtml(homeNumber(item.pending_violation)) + "</button></td>";
-            return "<tr>" + name + charge + login
+            return "<tr>" + name + charge + state + login
                 + "<td>" + Dash.escapeHtml(homeNumber(item.pending_pay)) + "</td>"
                 + "<td>" + Dash.escapeHtml(homeNumber(item.pending_ship)) + "</td>"
                 + "<td>" + Dash.escapeHtml(homeNumber(item.abnormal_package)) + "</td>"
@@ -542,7 +554,7 @@
             homeData = data;
             paintHome();
         }).catch(function (err) {
-            el("center-home-tbody").innerHTML = '<tr><td colspan="10" class="empty">'
+            el("center-home-tbody").innerHTML = '<tr><td colspan="11" class="empty">'
                 + Dash.escapeHtml(err.message || "加载失败") + "</td></tr>";
         });
     }
@@ -878,17 +890,18 @@
         paintSortMarks();
         paintHeadSummary(items);
         if (!(shopData.items && shopData.items.length)) {
-            body.innerHTML = '<tr><td colspan="17" class="empty">还没有店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="18" class="empty">还没有店铺</td></tr>';
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="17" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            body.innerHTML = '<tr><td colspan="18" class="empty">没有符合当前账号和店铺的数据</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (item) {
             var name = "<td>" + Dash.escapeHtml(item.name || "未命名店铺")
                 + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
             var charge = "<td>" + Dash.escapeHtml(item.charge_name || "—") + "</td>";
+            var state = shopStateCell(item);
             var scores = metricCell(item.experience_score)
                 + scoreCell(item.goods_score, item.goods_score_change)
                 + scoreCell(item.logistics_score, item.logistics_score_change)
@@ -901,12 +914,12 @@
                 + metricCell(item.bad_rate_30d);
             var detail = "<td>" + liveCell(item) + "</td>";
             if (item.sync_error) {
-                return "<tr>" + name + charge + scores + login
+                return "<tr>" + name + charge + state + scores + login
                     + '<td colspan="4" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td>"
                     + detail
                     + rates + "</tr>";
             }
-            return "<tr>" + name + charge + scores + login
+            return "<tr>" + name + charge + state + scores + login
                 + metricCell(item.pay_amount)
                 + metricCell(item.order_count)
                 + metricCell(item.refund_rate)
@@ -1018,7 +1031,7 @@
         var search = el("center-product-q");
         if (search) search.placeholder = live ? "商品名称、ID或店铺" : "商品名称或ID";
         var body = el("center-products-tbody");
-        var span = live ? 19 : 8;
+        var span = live ? 20 : 9;
         var scoped = visibleItems(productData.items || []);
         var items = sortedCopy(matchProductSearch(scoped), productSort);
         paintSortMarks();
@@ -1052,10 +1065,11 @@
                 var shop = '<td class="center-shop-name">' + Dash.escapeHtml(item.name || "未命名店铺")
                     + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
                 var charge = "<td>" + Dash.escapeHtml(item.charge_name || "—") + "</td>";
+                var state = shopStateCell(item);
                 if (item.sync_error) {
-                    return "<tr>" + product + shop + charge + '<td colspan="16" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
+                    return "<tr>" + product + shop + charge + state + '<td colspan="16" class="center-error">' + Dash.escapeHtml(item.sync_error) + "</td></tr>";
                 }
-                return "<tr>" + product + shop + charge + liveMetricCells(item) + "</tr>";
+                return "<tr>" + product + shop + charge + state + liveMetricCells(item) + "</tr>";
             }).join("");
             return;
         }
@@ -1068,11 +1082,12 @@
             var shop = '<td class="center-shop-name">' + Dash.escapeHtml(item.name || "未命名店铺")
                 + '<div class="center-home-id">' + Dash.escapeHtml(item.shop_id || "") + "</div></td>";
             var charge = "<td>" + Dash.escapeHtml(item.charge_name || "—") + "</td>";
+            var state = shopStateCell(item);
             if (item.sync_error) {
                 var errorText = item.sync_error.indexOf("频繁") >= 0 ? "暂无商品数据" : item.sync_error;
-                return "<tr>" + product + shop + charge + '<td colspan="5" class="center-error">' + Dash.escapeHtml(errorText) + "</td></tr>";
+                return "<tr>" + product + shop + charge + state + '<td colspan="5" class="center-error">' + Dash.escapeHtml(errorText) + "</td></tr>";
             }
-            return "<tr>" + product + shop + charge
+            return "<tr>" + product + shop + charge + state
                 + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.pay_amount || "—") + "</div></td>"
                 + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.order_count || "—") + "</div></td>"
                 + '<td><div class="center-shop-value">' + Dash.escapeHtml(item.refund_rate || "—") + "</div></td>"
@@ -1174,7 +1189,7 @@
     function ensureProducts() {
         var query = productQuery();
         if (!query) {
-            el("center-products-tbody").innerHTML = '<tr><td colspan="7" class="empty">请选择开始和结束日期</td></tr>';
+            el("center-products-tbody").innerHTML = '<tr><td colspan="9" class="empty">请选择开始和结束日期</td></tr>';
             return;
         }
         if (productData && productData._query === query) {
@@ -1188,7 +1203,7 @@
             paintProducts();
             paintShellFilters();
         }).catch(function (err) {
-            el("center-products-tbody").innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml((err && err.message) || "加载失败") + "</td></tr>";
+            el("center-products-tbody").innerHTML = '<tr><td colspan="9" class="empty">' + Dash.escapeHtml((err && err.message) || "加载失败") + "</td></tr>";
         });
     }
 
@@ -1238,9 +1253,9 @@
                 paintShops();
                 return;
             }
-            el("center-shops-tbody").innerHTML = '<tr><td colspan="17" class="empty">正在准备，启动后会先更新一次</td></tr>';
+            el("center-shops-tbody").innerHTML = '<tr><td colspan="18" class="empty">正在准备，启动后会先更新一次</td></tr>';
         }).catch(function () {
-            el("center-shops-tbody").innerHTML = '<tr><td colspan="17" class="empty">正在准备，启动后会先更新一次</td></tr>';
+            el("center-shops-tbody").innerHTML = '<tr><td colspan="18" class="empty">正在准备，启动后会先更新一次</td></tr>';
         });
     }
 

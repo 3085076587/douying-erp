@@ -197,6 +197,78 @@ def due_date_text(penalty_text: str, violated_at: datetime | None) -> str:
     return (violated_at.date() + timedelta(days=days)).isoformat()
 
 
+_SHOP_STATE_LABEL = {
+    "店铺清退": "已清退",
+    "停业整顿": "停业整顿中",
+    "店铺每日限单": "限单中",
+    "店铺限制出单": "限单中",
+}
+_SHOP_STATE_RANK = {"已清退": 0, "停业整顿中": 1, "限单中": 2}
+_CLAUSE_SPLIT = re.compile(r"[;；]")
+
+
+def _clause_days(text: str) -> int:
+    days = 0
+    for match in _DUE_DAYS_RE.finditer(text or ""):
+        days = max(days, int(match.group(1)))
+    return days
+
+
+def shop_states(db: Session) -> dict[int, tuple[str, str]]:
+    """每家店当前的店铺状态。只看已处置、还没到期的限单、停业整顿、清退。
+
+    到期只取这一条处罚自己的天数，不拿同一句里别的处罚的天数。
+    没有这类处罚时是「正常」，没有到期日。
+    同时有几种时，已清退优先于停业整顿，停业整顿优先于限单。
+    """
+    today = date.today()
+    found: dict[int, dict[str, date | None]] = {}
+    rows = db.scalars(select(DyViolation).where(DyViolation.status == "已处置")).all()
+    for row in rows:
+        for part in _CLAUSE_SPLIT.split(row.penalty or ""):
+            clause = part.strip()
+            if not clause:
+                continue
+            for category in penalty_categories(clause):
+                label = _SHOP_STATE_LABEL.get(category)
+                if not label:
+                    continue
+                days = _clause_days(clause)
+                due: date | None = None
+                if days and row.violated_at is not None:
+                    due = row.violated_at.date() + timedelta(days=days)
+                    if due < today:
+                        continue
+                bucket = found.setdefault(row.store_pk, {})
+                previous = bucket.get(label, None)
+                if label not in bucket:
+                    bucket[label] = due
+                elif due is None:
+                    bucket[label] = None
+                elif previous is not None and due > previous:
+                    bucket[label] = due
+    result: dict[int, tuple[str, str]] = {}
+    for store_pk, bucket in found.items():
+        label = min(bucket, key=lambda name: _SHOP_STATE_RANK[name])
+        due = bucket[label]
+        result[store_pk] = (label, due.isoformat() if due else "")
+    return result
+
+
+def stamp_shop_state(db: Session, items: list) -> None:
+    states = shop_states(db)
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            store_pk = int(item.get("store_pk") or 0)
+        except (TypeError, ValueError):
+            store_pk = 0
+        label, due = states.get(store_pk, ("正常", ""))
+        item["shop_state"] = label
+        item["shop_state_due"] = due
+
+
 # ---------------------------------------------------------------------------
 # 违规类型：抖店给的原文常把处置动作也拼在后面，例如
 #   「劣质商品的同款/同类商品（商品封禁）」
