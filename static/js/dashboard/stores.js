@@ -39,28 +39,31 @@
         var keyword = document.getElementById("store-search").value.trim().toLowerCase();
         var owner = document.getElementById("store-owner").value;
         var charge = document.getElementById("store-charge").value;
+        var legal = document.getElementById("store-legal").value;
         var login = document.getElementById("store-login").value;
         var rows = storeItems.filter(function (row) {
             if (owner && (row.owner_account || "") !== owner) return false;
             var person = (row.charge_name || "").trim();
             if (charge === "未分配" && person) return false;
             if (charge && charge !== "未分配" && person !== charge) return false;
+            if (legal && (row.legal_person || "").trim() !== legal) return false;
             if (login && (row.login_status || "") !== login) return false;
             if (!keyword) return true;
             return (row.name || "").toLowerCase().indexOf(keyword) >= 0 || String(row.shop_id || "").indexOf(keyword) >= 0;
         });
         if (!storeItems.length) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">还没有店铺。请使用插件添加。</td></tr>';
+            body.innerHTML = '<tr><td colspan="8" class="empty">还没有店铺。请使用插件添加。</td></tr>';
             return;
         }
         if (!rows.length) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">没有符合筛选的店铺</td></tr>';
+            body.innerHTML = '<tr><td colspan="8" class="empty">没有符合筛选的店铺</td></tr>';
             return;
         }
         body.innerHTML = rows.map(function (row) {
             var left = loginLeft(row.credential_at);
             var mark = left.cls ? '<span class="tag ' + left.cls + '">' + Dash.escapeHtml(left.text) + "</span>" : Dash.escapeHtml(left.text);
-            return "<tr><td>" + Dash.escapeHtml(row.name) + "</td><td>" + Dash.escapeHtml(row.charge_name || "—") +
+            return "<tr><td>" + Dash.escapeHtml(row.name) + "</td><td>" + Dash.escapeHtml(row.legal_person || "—") +
+                "</td><td>" + Dash.escapeHtml(row.charge_name || "—") +
                 "</td><td>" + Dash.escapeHtml(row.shop_id) +
                 "</td><td>" + Dash.escapeHtml(row.owner_account || "") +
                 "</td><td>" + mark +
@@ -74,25 +77,29 @@
             storeItems = data.items || [];
             var owners = [];
             var charges = [];
+            var legals = [];
             var hasEmptyCharge = false;
             storeItems.forEach(function (row) {
                 if (row.owner_account && owners.indexOf(row.owner_account) < 0) owners.push(row.owner_account);
                 var person = (row.charge_name || "").trim();
                 if (!person) hasEmptyCharge = true;
                 else if (charges.indexOf(person) < 0) charges.push(person);
+                var legalName = (row.legal_person || "").trim();
+                if (legalName && legals.indexOf(legalName) < 0) legals.push(legalName);
             });
             if (hasEmptyCharge) charges.push("未分配");
             fillSelect("store-owner", owners, "全部归属账号");
             fillSelect("store-charge", charges, "全部负责人");
+            fillSelect("store-legal", legals, "全部法人");
             paintStores();
         }).catch(function (err) {
-            body.innerHTML = '<tr><td colspan="7" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
+            body.innerHTML = '<tr><td colspan="8" class="empty">' + Dash.escapeHtml(err.message) + "</td></tr>";
         });
     }
 
     setInterval(paintStores, 30000);
 
-    ["store-search", "store-owner", "store-charge", "store-login"].forEach(function (id) {
+    ["store-search", "store-owner", "store-charge", "store-legal", "store-login"].forEach(function (id) {
         document.getElementById(id).addEventListener("input", paintStores);
         document.getElementById(id).addEventListener("change", paintStores);
     });

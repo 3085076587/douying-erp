@@ -70,6 +70,7 @@
                         <input id="store-search" type="search" placeholder="搜索店铺名称或店铺ID">
                         <select id="store-owner"><option value="">全部归属账号</option></select>
                         <select id="store-charge"><option value="">全部负责人</option></select>
+                        <select id="store-legal"><option value="">全部法人</option></select>
                         <select id="store-login">
                             <option value="">全部登录状态</option>
                             <option value="online">在线</option>
@@ -80,11 +81,11 @@
                         <table class="data-table">
                             <thead>
                             <tr>
-                                <th>店铺名称</th><th>负责人</th><th>店铺ID</th><th>归属账号</th><th>建议重新登录</th><th>登录</th><th>操作</th>
+                                <th>店铺名称</th><th>法人</th><th>负责人</th><th>店铺ID</th><th>归属账号</th><th>建议重新登录</th><th>登录</th><th>操作</th>
                             </tr>
                             </thead>
                             <tbody id="store-tbody">
-                            <tr><td colspan="7" class="empty">加载中</td></tr>
+                            <tr><td colspan="8" class="empty">加载中</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -696,7 +697,7 @@
 <div class="toast hidden" id="toast"></div>
 <script src="/static/js/common.js"></script>
 <script src="/static/js/dashboard/core.js?v=14"></script>
-<script src="/static/js/dashboard/stores.js?v=13"></script>
+<script src="/static/js/dashboard/stores.js?v=14"></script>
 <script src="/static/js/dashboard/accounts.js?v=12"></script>
 <script src="/static/js/dashboard/invoices.js?v=2"></script>
 <script src="/static/js/dashboard/compensates.js?v=3"></script>
