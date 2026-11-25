@@ -306,9 +306,11 @@ def save_entered_cookies(member_id: str, cookies: dict[str, str]) -> None:
 
 def list_shop_rows(db: Session) -> list[dict]:
     from app.services.shop_owner import names_by_store
+    from app.services.violation_service import shop_states
 
     shops = list(db.scalars(select(Shop).order_by(Shop.id.asc())))
     charges = names_by_store(db)
+    states = shop_states(db)
     return [
         {
             "id": shop.id,
@@ -322,6 +324,8 @@ def list_shop_rows(db: Session) -> list[dict]:
             "credential_at": shop.credential_at.strftime("%Y-%m-%d %H:%M:%S") if shop.credential_at else "",
             "owner_account": shop.owner_account or "",
             "charge_name": charges.get(shop.id, ""),
+            "shop_state": states.get(shop.id, ("正常", ""))[0],
+            "shop_state_due": states.get(shop.id, ("正常", ""))[1],
             "shop_cookie": int(shop.shop_cookie or 0),
             "opened_on": shop.opened_on,
         }

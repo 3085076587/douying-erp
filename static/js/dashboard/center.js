@@ -164,6 +164,17 @@
         return select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : "全部负责人";
     }
 
+    function stateLabel() {
+        var select = el("center-state");
+        if (!select) return "全部状态";
+        return select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : "全部状态";
+    }
+
+    function matchesState(label, wanted) {
+        if (!wanted) return true;
+        return (label || "正常") === wanted;
+    }
+
     function accountLabel() {
         var select = el("center-account");
         return select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : "全部账号";
@@ -189,9 +200,9 @@
     }
 
     function paintShellFilters() {
-        var shopText = "当前筛选：" + accountLabel() + " · " + chargeLabel() + " · " + shopLabel() + " · " + timeLabel();
+        var shopText = "当前筛选：" + accountLabel() + " · " + chargeLabel() + " · " + stateLabel() + " · " + shopLabel() + " · " + timeLabel();
         el("center-shops-filter").textContent = shopText;
-        var productText = "当前筛选：" + accountLabel() + " · " + chargeLabel() + " · " + shopLabel() + " · " + timeLabel();
+        var productText = "当前筛选：" + accountLabel() + " · " + chargeLabel() + " · " + stateLabel() + " · " + shopLabel() + " · " + timeLabel();
         el("center-products-filter").textContent = productText;
     }
 
@@ -265,12 +276,20 @@
         return name === wanted;
     }
 
-    function shopsOfAccount() {
+    function scopedShops() {
         var account = el("center-account").value;
         var charge = el("center-charge") ? el("center-charge").value : "";
         return shops.filter(function (row) {
             if (account && (row.owner_account || "") !== account) return false;
             return matchesCharge(row.charge_name, charge);
+        });
+    }
+
+    function shopsOfAccount() {
+        var state = el("center-state") ? el("center-state").value : "";
+        return scopedShops().filter(function (row) {
+            if (!state || !row.shop_state) return true;
+            return matchesState(row.shop_state, state);
         });
     }
 
@@ -326,13 +345,15 @@
         var account = el("center-account").value;
         var shopId = el("center-shop").value;
         var charge = el("center-charge") ? el("center-charge").value : "";
+        var state = el("center-state") ? el("center-state").value : "";
         var allowed = {};
-        shopsOfAccount().forEach(function (row) { allowed[String(row.shop_id)] = true; });
+        scopedShops().forEach(function (row) { allowed[String(row.shop_id)] = true; });
         return (items || []).filter(function (item) {
             var id = String(item.shop_id || "");
             if (shopId && id !== shopId) return false;
             if ((account || charge) && shops.length && !allowed[id]) return false;
             if (!shops.length && !matchesCharge(item.charge_name, charge)) return false;
+            if (!matchesState(item.shop_state, state)) return false;
             return true;
         });
     }
@@ -382,7 +403,7 @@
             return;
         }
         if (!items.length) {
-            list.innerHTML = '<p class="empty">没有符合当前账号和店铺的数据</p>';
+            list.innerHTML = '<p class="empty">没有符合当前筛选的数据</p>';
             return;
         }
         list.innerHTML = items.map(function (item) {
@@ -523,7 +544,7 @@
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="11" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            body.innerHTML = '<tr><td colspan="11" class="empty">没有符合当前筛选的数据</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (item) {
@@ -896,7 +917,7 @@
             return;
         }
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="19" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            body.innerHTML = '<tr><td colspan="19" class="empty">没有符合当前筛选的数据</td></tr>';
             return;
         }
         body.innerHTML = items.map(function (item) {
@@ -1046,7 +1067,7 @@
             return;
         }
         if (!scoped.length) {
-            body.innerHTML = '<tr><td colspan="' + span + '" class="empty">没有符合当前账号和店铺的数据</td></tr>';
+            body.innerHTML = '<tr><td colspan="' + span + '" class="empty">没有符合当前筛选的数据</td></tr>';
             return;
         }
         if (!items.length) {
@@ -1381,8 +1402,9 @@
 
     function selectedDealShops(group) {
         var wanted = el("deal-charge") ? el("deal-charge").value : "";
+        var state = el("center-state") ? el("center-state").value : "";
         return ((group && group.shops) || []).filter(function (shop) {
-            return matchesCharge(shop.charge_name, wanted);
+            return matchesCharge(shop.charge_name, wanted) && matchesState(shop.shop_state, state);
         });
     }
 
@@ -1705,8 +1727,9 @@
         var board = el("deal-board");
         var shown = visibleDealGroups();
         if (!shown.length) {
-            var empty = el("deal-charge") && el("deal-charge").value
-                ? "没有这个负责人的店铺"
+            var narrowed = (el("deal-charge") && el("deal-charge").value) || (el("center-state") && el("center-state").value);
+            var empty = narrowed
+                ? "没有符合当前筛选的店铺"
                 : "还没有可以按抖音号汇总的店铺";
             board.innerHTML = '<p class="empty">' + empty + "</p>";
             return;
@@ -1845,6 +1868,15 @@
             paintHome();
             if (shopData) paintShops();
             if (productData) paintProducts();
+        });
+        el("center-state").addEventListener("change", function () {
+            fillShops();
+            paintShellFilters();
+            if (latest) paint(latest);
+            paintHome();
+            if (shopData) paintShops();
+            if (productData) paintProducts();
+            if (dealData) paintDeals();
         });
         el("deal-charge").addEventListener("change", function () {
             if (dealAccount) {

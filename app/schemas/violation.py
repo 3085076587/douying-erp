@@ -103,7 +103,7 @@ class ViolationProgress(BaseModel):
     last_update: str = ""       # 上一次更新完成的时间，如 2026-11-06 16:43:41
     next_update: str = ""       # 下次更新时间，如 2026-11-06 16:53
     interval_minutes: int = 10  # 定时更新的间隔（分钟）
-    trigger: str = ""           # schedule 是启动预热和定时更新，manual 是页面上点的拉取
+    trigger: str = ""           # warmup 是启动时 Redis 没数据，schedule 是定时更新，manual 是页面上点的拉取
 
 
 class ViolationRefreshRequest(BaseModel):

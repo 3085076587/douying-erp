@@ -111,10 +111,17 @@ def list_deals(db: Session, start: str = "", end: str = "") -> dict:
     groups = assemble(shops, rows, days)
     from app.services.shop_owner import names_by_store
 
+    from app.services.violation_service import shop_states
+
     charges = names_by_store(db)
+    states = shop_states(db)
     for group in groups:
         for shop in group["shops"]:
-            shop["charge_name"] = charges.get(int(shop["store_pk"]), "")
+            store_pk = int(shop["store_pk"])
+            label, due = states.get(store_pk, ("正常", ""))
+            shop["charge_name"] = charges.get(store_pk, "")
+            shop["shop_state"] = label
+            shop["shop_state_due"] = due
     return {
         "start": start_day.isoformat(),
         "end": end_day.isoformat(),

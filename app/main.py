@@ -103,10 +103,10 @@ async def _refresh_loop() -> None:
             await asyncio.sleep(60)
 
 
-async def _violation_once(minutes: int) -> None:
+async def _violation_once(minutes: int, trigger: str = "schedule") -> None:
     write_start("违规与预警")
     today = violation_service.today_text()
-    await asyncio.to_thread(violation_service.run_refresh_sync, today, today, "schedule")
+    await asyncio.to_thread(violation_service.run_refresh_sync, today, today, trigger)
     state = violation_service.progress()
     message = str(state.get("message") or "完成")
     failed = int(state.get("failed") or 0)
@@ -122,7 +122,8 @@ async def _violation_loop() -> None:
     """违规与预警：启动后先预热今天，之后每 VIOLATION_REFRESH_MINUTES 分钟再拉今天。
 
     近 30 天的列表读库。昨天由每天 00:01 的任务入库，这里不再回抓历史。
-    启动预热：10 分钟内刚更新过就跳过，否则约 20 秒后开始拉今天。
+    启动时 Redis 没有违规缓存才把预热进度露给页面。之后每 10 分钟照常拉今天，不挡页面。
+    10 分钟内刚更新过就跳过这次启动拉取，否则约 20 秒后开始。
     """
     minutes = violation_service.schedule_minutes()
     logger.info("违规与预警定时更新已启动，预热和之后每 %s 分钟只拉今天", minutes)
@@ -136,9 +137,11 @@ async def _violation_loop() -> None:
                     write_success("违规与预警 10分钟内已有数据，启动预热跳过")
                     logger.info("违规与预警 10分钟内已有数据，启动预热跳过")
                 else:
-                    violation_service.begin_warmup()
+                    show_warmup = not violation_service.redis_has_data()
+                    if show_warmup:
+                        violation_service.begin_warmup()
                     await asyncio.sleep(20)
-                    await _violation_once(minutes)
+                    await _violation_once(minutes, "warmup" if show_warmup else "schedule")
                     continue
             wait_seconds = 20.0
             last = str(violation_service.read_state().get("last_update") or "")

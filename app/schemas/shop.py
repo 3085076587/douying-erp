@@ -16,6 +16,8 @@ class ShopInfo(BaseModel):
     credential_at: str = ""
     owner_account: str = ""
     charge_name: str = ""
+    shop_state: str = "正常"
+    shop_state_due: str = ""
     shop_cookie: int = 0
     opened_on: str = ""
 

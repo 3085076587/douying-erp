@@ -57,7 +57,12 @@
         });
     }
 
-    // 开着这个页面就跟着进度走。预热或定时更新一开始，进度条马上出来。
+    // 进度条只给两种情况：启动时 Redis 没数据的预热，以及点拉取最新数据。
+    // 10 分钟定时更新照常跑，不挡页面。
+    function progressVisible(state) {
+        return !!(state && state.running && (state.trigger === "manual" || state.trigger === "warmup"));
+    }
+
     function pollSchedule() {
         if (scheduleTimer) return;
         scheduleTimer = setInterval(function () {
@@ -65,8 +70,10 @@
                 var before = lastUpdateSeen;
                 paintSchedule(state);
                 if (state.running) {
-                    paintProgress(state);
-                    followRunning();
+                    if (progressVisible(state)) {
+                        paintProgress(state);
+                        followRunning();
+                    }
                     return;
                 }
                 if (state.last_update && state.last_update !== before) {
@@ -99,12 +106,12 @@
         var total = state.total || 0;
         var done = state.done || 0;
         var bar = el("violation-bar");
-        if (state.running && violationsVisible()) {
-            var warming = state.trigger === "schedule";
+        if (progressVisible(state) && violationsVisible()) {
+            var warming = state.trigger === "warmup";
             el("violation-mask-title").textContent = warming ? "正在预热违规数据" : "正在拉取违规数据";
             showMask(total
                 ? (warming ? "正在预热 " : "正在拉取 ") + done + " / " + total + " 家"
-                : "正在预热…");
+                : (warming ? "正在预热…" : "正在拉取…"));
             bar.style.width = total ? Math.min(100, Math.round(done * 100 / total)) + "%" : "18%";
             return;
         }
@@ -452,8 +459,10 @@
             loadOptions();
             Dash.request("/violations/progress").then(function (state) {
                 paintSchedule(state);
-                paintProgress(state);
-                if (state.running) followRunning();
+                if (progressVisible(state)) {
+                    paintProgress(state);
+                    followRunning();
+                }
             }).catch(function () {});
             pollSchedule();
         }

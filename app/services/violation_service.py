@@ -70,6 +70,13 @@ def cache_fresh(seconds: int = 600) -> bool:
     return fund_cache.stamp_fresh(read_state().get("last_update"), seconds)
 
 
+def redis_has_data() -> bool:
+    """Redis 里还有违规列表缓存。启动时没有这份缓存才把预热进度露给页面。"""
+    from app.services import fund_cache
+
+    return any(str(kind).startswith("dy:violation:") for kind in fund_cache.kinds())
+
+
 def read_state() -> dict:
     """上一次更新的时间、结果。写在 logs 下的 json，重启也还在。"""
     try:
@@ -394,12 +401,12 @@ def progress() -> dict:
 
 
 def begin_warmup() -> None:
-    """启动预热一开始就记下进度，页面打开就能看到进度条。"""
+    """启动且 Redis 没有违规缓存时记下进度，页面才能看到预热。"""
     with _PROGRESS:
         if _PROGRESS_SLOT.get("running"):
             return
         _PROGRESS_SLOT.update(
-            running=True, done=0, total=0, failed=0, message="正在预热", trigger="schedule"
+            running=True, done=0, total=0, failed=0, message="正在预热", trigger="warmup"
         )
 
 
@@ -919,9 +926,10 @@ def run_refresh_sync(start_date: str = "", end_date: str = "", trigger: str = "s
 
 
 def start_refresh(start_date: str = "", end_date: str = "") -> dict:
-    """页面点拉取最新时立刻返回，进度在后台走。预热已经在跑就跟着那一次，不再另开。"""
+    """页面点拉取最新时立刻返回，进度在后台走。已经在跑就改成手动，让页面看到进度。"""
     with _PROGRESS:
         if _PROGRESS_SLOT.get("running"):
+            _PROGRESS_SLOT["trigger"] = "manual"
             return dict(_PROGRESS_SLOT)
     if not _JOB.acquire(blocking=False):
         return progress()
