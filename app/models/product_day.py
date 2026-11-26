@@ -24,6 +24,7 @@ class DyProductDay(Base):
     product_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     stat_date: Mapped[date] = mapped_column(Date, nullable=False)
     pay_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    user_pay_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     order_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     refund_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     refund_rate: Mapped[int] = mapped_column(Integer, nullable=False, default=-1, server_default="-1")

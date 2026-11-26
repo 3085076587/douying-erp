@@ -32,6 +32,7 @@ def ensure_product_table() -> None:
                 product_name VARCHAR(255) NOT NULL DEFAULT '',
                 stat_date DATE NOT NULL,
                 pay_amount INT NOT NULL DEFAULT 0,
+                user_pay_amount INT NOT NULL DEFAULT 0,
                 order_count INT NOT NULL DEFAULT 0,
                 refund_amount INT NOT NULL DEFAULT 0,
                 refund_rate INT NOT NULL DEFAULT -1,
@@ -53,7 +54,11 @@ def ensure_product_table() -> None:
                 "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'dy_product_day'"
             ))
         }
-        for name, ddl in (("good_count", "INT NOT NULL DEFAULT 0"), ("eval_count", "INT NOT NULL DEFAULT 0")):
+        for name, ddl in (
+            ("user_pay_amount", "INT NOT NULL DEFAULT 0"),
+            ("good_count", "INT NOT NULL DEFAULT 0"),
+            ("eval_count", "INT NOT NULL DEFAULT 0"),
+        ):
             if name not in names:
                 conn.execute(text(f"ALTER TABLE dy_product_day ADD COLUMN {name} {ddl}"))
         conn.execute(text(
@@ -68,7 +73,7 @@ def ensure_product_table() -> None:
 
 
 def sync_yesterday() -> str:
-    """补齐每家店缺的日期，直到昨天。同一天最多试 3 次，仍拿不到就记成没有商品，然后照常更新退款率。"""
+    """从每家店最后一条商品日的下一天补到昨天。没拉到的日期保持空缺，下次凌晨继续补。"""
     ensure_product_table()
     yesterday = date.today() - timedelta(days=1)
     only_ids: set[int] | None = None
@@ -84,13 +89,16 @@ def sync_yesterday() -> str:
         only_ids = set(failed_ids)
         if attempt < 3:
             print(f"还有 {len(failed_ids)} 家没拿到，第 {attempt + 1} 次再试", flush=True)
-    abandoned = _abandon_days(failed_ids, yesterday) if failed_ids else 0
-    if offline_ids:
-        print(f"{len(offline_ids)} 家登录失效，这一天先不记空", flush=True)
+    if failed_ids or offline_ids:
+        print(
+            f"{len(failed_ids)} 家没拉完，{len(offline_ids)} 家登录失效。"
+            "这些日期不记成已完成，下次从最后入库日继续补",
+            flush=True,
+        )
     from app.services.product_refund_rate import rebuild_refund_rates
 
     rate = rebuild_refund_rates()
-    return f"{yesterday.isoformat()} 放弃 {abandoned} 家。{rate}"
+    return f"{yesterday.isoformat()} 未补齐 {len(failed_ids) + len(offline_ids)} 家。{rate}"
 
 
 def backfill_since_october() -> None:
@@ -122,18 +130,10 @@ def _dates(start: date, end: date) -> list[date]:
 
 
 def _due_days(store_pk: int, yesterday: date) -> list[date]:
-    """这家店最后入库日的下一天，一直补到昨天。已经有昨天的不再请求罗盘。"""
+    """这家店最后一条商品日的下一天，一直补到昨天。标记表不算入库。"""
     with SessionLocal() as db:
         last = db.execute(
-            text(
-                """
-                SELECT MAX(stat_date) FROM (
-                    SELECT MAX(stat_date) AS stat_date FROM dy_product_day WHERE store_pk = :pk
-                    UNION ALL
-                    SELECT MAX(stat_date) FROM dy_product_day_mark WHERE store_pk = :pk
-                ) t
-                """
-            ),
+            text("SELECT MAX(stat_date) FROM dy_product_day WHERE store_pk = :pk"),
             {"pk": store_pk},
         ).scalar()
     if isinstance(last, datetime):
@@ -181,47 +181,6 @@ def _sync_due(
         if index < len(shops):
             time.sleep(SHOP_GAP)
     return ok, fail, skip, failed_ids, offline_ids
-
-
-def _abandon_days(store_ids: list[int], yesterday: date) -> int:
-    """连续 3 次没拿到的日期记成没有商品。不删已有的商品行，下次不再请求这些天。"""
-    with SessionLocal() as db:
-        names = {
-            shop.id: shop.name
-            for shop in db.scalars(select(Shop).where(Shop.id.in_(store_ids)))
-        }
-    abandoned = 0
-    for store_pk in store_ids:
-        days = _due_days(store_pk, yesterday)
-        if not days:
-            continue
-        _mark_days(store_pk, days)
-        abandoned += 1
-        name = names.get(store_pk) or str(store_pk)
-        print(
-            f"放弃 {name} {'、'.join(day.isoformat() for day in days)}，这一天没有商品",
-            flush=True,
-        )
-    return abandoned
-
-
-def _mark_days(store_pk: int, days: list[date]) -> None:
-    db = SessionLocal()
-    try:
-        for day in days:
-            db.execute(text(
-                """
-                INSERT INTO dy_product_day_mark (store_pk, stat_date)
-                VALUES (:pk, :day)
-                ON DUPLICATE KEY UPDATE stat_date = VALUES(stat_date)
-                """
-            ), {"pk": store_pk, "day": day})
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def _sync_range(start: date, end: date) -> tuple[int, int, int]:
@@ -368,6 +327,7 @@ def _records(view: dict, rows: list[dict], day: date) -> dict[str, dict]:
             "product_name": _text_cell(product.get("product_name_value")).strip()[:255],
             "stat_date": day,
             "pay_amount": _stored_count(_product_value(cell, "ad_receive_amt")),
+            "user_pay_amount": _stored_count(_product_value(cell, "pay_amt")),
             "order_count": _stored_count(_product_value(cell, "pay_cnt")),
             "refund_amount": _stored_count(_product_value(cell, "pay_refund_success_amt")),
             "refund_rate": _stored_rate(_product_value(cell, "pay_refund_ratio")),

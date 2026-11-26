@@ -169,11 +169,55 @@ def numbers_from_cards(payload: dict) -> tuple[dict[str, int], list[str]]:
 
 
 def sync_yesterday() -> str:
-    """每天 00:01 拉昨天。同一天再跑会覆盖。"""
+    """从每家店最后一条成交日的下一天补到昨天。没拉到的日期下次凌晨继续补。"""
     ensure_deal_table()
-    day = date.today() - timedelta(days=1)
-    ok, fail, skip = _sync_range(day, day)
-    return f"昨天 {day.isoformat()} 成功 {ok} 家，失败 {fail} 家，跳过 {skip} 家"
+    yesterday = date.today() - timedelta(days=1)
+    with SessionLocal() as db:
+        shops = list(db.scalars(select(Shop).order_by(Shop.id.asc())))
+    ok = fail = skip = 0
+    announced = False
+    for index, shop in enumerate(shops, 1):
+        days = _due_days(shop.id, yesterday)
+        if not days:
+            print(f"{index}/{len(shops)} {shop.name} 已有 {yesterday.isoformat()}", flush=True)
+            ok += 1
+            continue
+        print(
+            f"{index}/{len(shops)} 开始 {shop.name} {'、'.join(day.isoformat() for day in days)}",
+            flush=True,
+        )
+        try:
+            line, announced = _sync_shop(shop.id, shop.name, days, announced)
+        except DealSourceError:
+            raise
+        except Exception as exc:
+            line = f"[失败] {shop.name} {exc}"
+        print(f"{index}/{len(shops)} {line}", flush=True)
+        if line.startswith("[完成]"):
+            ok += 1
+        elif line.startswith("[跳过]"):
+            skip += 1
+        else:
+            fail += 1
+        if index < len(shops):
+            time.sleep(SHOP_GAP)
+    return f"补到 {yesterday.isoformat()} 成功 {ok} 家，失败 {fail} 家，跳过 {skip} 家"
+
+
+def _due_days(store_pk: int, yesterday: date) -> list[date]:
+    """这家店最后一条成交日的下一天，一直补到昨天。"""
+    with SessionLocal() as db:
+        last = db.execute(
+            text("SELECT MAX(stat_date) FROM dy_deal_day WHERE store_pk = :pk"),
+            {"pk": store_pk},
+        ).scalar()
+    if isinstance(last, datetime):
+        last = last.date()
+    if last is None:
+        return [yesterday]
+    if last >= yesterday:
+        return []
+    return _dates(last + timedelta(days=1), yesterday)
 
 
 def backfill_recent(days: int = 30) -> None:

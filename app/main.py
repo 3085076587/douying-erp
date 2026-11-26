@@ -121,7 +121,7 @@ async def _violation_once(minutes: int, trigger: str = "schedule") -> None:
 async def _violation_loop() -> None:
     """违规与预警：启动后先预热今天，之后每 VIOLATION_REFRESH_MINUTES 分钟再拉今天。
 
-    近 30 天的列表读库。昨天由每天 00:01 的任务入库，这里不再回抓历史。
+    近 30 天的列表读库。昨天由每天 03:00 的任务入库，这里不再回抓历史。
     启动时 Redis 没有违规缓存才把预热进度露给页面。之后每 10 分钟照常拉今天，不挡页面。
     10 分钟内刚更新过就跳过这次启动拉取，否则约 20 秒后开始。
     """
@@ -228,12 +228,12 @@ def _seconds_until_clock(hour: int, minute: int) -> float:
 
 
 async def _violation_day_loop() -> None:
-    """违规与预警：每天 00:01 把昨天再拉一次入库。当天仍由 10 分钟任务更新。"""
-    logger.info("违规与预警已启动，每天 00:01 拉昨天入库")
-    write_start("违规与预警，每天 00:01 拉昨天入库")
+    """违规与预警：每天 03:00 把昨天再拉一次入库。当天仍由 10 分钟任务更新。"""
+    logger.info("违规与预警已启动，每天 03:00 拉昨天入库")
+    write_start("违规与预警，每天 03:00 拉昨天入库")
     while True:
         try:
-            await asyncio.sleep(_seconds_until_clock(0, 1))
+            await asyncio.sleep(_seconds_until_clock(3, 0))
             write_start("违规与预警昨天")
             state = await asyncio.to_thread(violation_service.sync_yesterday)
             message = str(state.get("message") or "完成")
@@ -253,12 +253,12 @@ async def _violation_day_loop() -> None:
 
 
 async def _deal_day_loop() -> None:
-    """成交日：每天 00:01 拉昨天。页面要的指标里，已经对上的才会入库。"""
-    logger.info("成交日已启动，每天 00:01 拉昨天")
-    write_start("成交日，每天 00:01 拉昨天")
+    """成交日：每天 03:00 拉昨天。00:01 罗盘还不认昨天，会回日期校验失败。"""
+    logger.info("成交日已启动，每天 03:00 拉昨天")
+    write_start("成交日，每天 03:00 拉昨天")
     while True:
         try:
-            await asyncio.sleep(_seconds_until_clock(0, 1))
+            await asyncio.sleep(_seconds_until_clock(3, 0))
             write_start("成交日")
             message = await asyncio.to_thread(sync_yesterday)
             write_success(f"成交日 {message}")
@@ -272,12 +272,12 @@ async def _deal_day_loop() -> None:
 
 
 async def _product_day_loop() -> None:
-    """商品日：每天 00:01 把每家店缺的日期补到昨天。实时商品仍走原来的 10 分钟任务。"""
-    logger.info("商品日已启动，每天 00:01 补齐到昨天")
-    write_start("商品日，每天 00:01 补齐到昨天")
+    """商品日：每天 03:00 把每家店缺的日期补到昨天。00:01 罗盘还不认昨天。实时商品仍走 10 分钟任务。"""
+    logger.info("商品日已启动，每天 03:00 补齐到昨天")
+    write_start("商品日，每天 03:00 补齐到昨天")
     while True:
         try:
-            await asyncio.sleep(_seconds_until_clock(0, 1))
+            await asyncio.sleep(_seconds_until_clock(3, 0))
             write_start("商品日")
             message = await asyncio.to_thread(sync_product_yesterday)
             write_success(f"商品日 {message}")
@@ -291,9 +291,9 @@ async def _product_day_loop() -> None:
 
 
 async def _compensate_loop() -> None:
-    """账单赔付：第一次把全部历史补进库，之后每天 00:01 拉昨天。页面默认仍看近 30 天。"""
-    logger.info("账单赔付已启动，第一次补全部历史，之后每天 00:01 拉昨天")
-    write_start("账单赔付，第一次补全部历史，之后每天 00:01 拉昨天")
+    """账单赔付：第一次把全部历史补进库，之后每天 03:00 拉昨天。页面默认仍看近 30 天。"""
+    logger.info("账单赔付已启动，第一次补全部历史，之后每天 03:00 拉昨天")
+    write_start("账单赔付，第一次补全部历史，之后每天 03:00 拉昨天")
     await asyncio.sleep(20)
     try:
         if compensate_service.needs_backfill():
@@ -307,7 +307,7 @@ async def _compensate_loop() -> None:
         write_fail("账单赔付")
     while True:
         try:
-            await asyncio.sleep(_seconds_until_clock(0, 1))
+            await asyncio.sleep(_seconds_until_clock(3, 0))
             write_start("账单赔付")
             message = await asyncio.to_thread(compensate_service.pull_yesterday)
             write_success(f"账单赔付 {message}")

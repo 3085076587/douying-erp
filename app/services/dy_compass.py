@@ -214,6 +214,7 @@ def fetch_operating_cards(
 _PRODUCT_INDEXES = ",".join(
     (
         "ad_receive_amt",
+        "pay_amt",
         "pay_cnt",
         "pay_refund_ratio",
         "pay_refund_success_amt",

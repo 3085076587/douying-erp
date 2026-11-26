@@ -21,7 +21,7 @@ SELECT
     t.start_date, t.end_date, t.day_count,
     t.pay_amount, t.order_count, t.refund_amount,
     CASE
-        WHEN t.pay_amount > 0 THEN CAST(ROUND(t.refund_amount * 10000 / t.pay_amount) AS SIGNED)
+        WHEN t.user_pay_amount > 0 THEN CAST(ROUND(t.refund_amount * 10000 / t.user_pay_amount) AS SIGNED)
         ELSE -1
     END,
     :now, :now
@@ -30,6 +30,7 @@ FROM (
         store_pk,
         product_id,
         SUM(pay_amount) AS pay_amount,
+        SUM(user_pay_amount) AS user_pay_amount,
         SUM(order_count) AS order_count,
         SUM(refund_amount) AS refund_amount,
         MIN(stat_date) AS start_date,
@@ -100,7 +101,7 @@ def ensure_refund_rate_table() -> None:
 
 
 def rebuild_refund_rates() -> str:
-    """用昨天及以前的商品日重算。老商品更新，新商品插入，没有日数据的删掉。今天不进这张表。"""
+    """用昨天及以前的商品日重算。退款率是退款金额除以用户支付金额。今天不进这张表。"""
     from app.services.product_sync import ensure_product_table
 
     ensure_product_table()

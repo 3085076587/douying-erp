@@ -4,5 +4,5 @@ from pydantic import BaseModel, Field
 
 class ProductRefundRateItem(BaseModel):
     updated_at: str = ""
-    refund_rate: float | None = Field(description="退款率百分数。12.4 表示 12.40%。没有成交金额时为空")
+    refund_rate: float | None = Field(description="退款率百分数。12.4 表示 12.40%。没有用户支付金额时为空")
     product_id: str = ""

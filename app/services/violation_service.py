@@ -1,7 +1,7 @@
 """抖店违规与预警：拉取、缓存、入库和查询。
 
 页面按所选日期读库。10 分钟任务和启动预热只向抖店要今天。
-每天 00:01 再把昨天拉一次入库。点「拉取最新数据」按页面上的日期重拉。
+每天 03:00 再把昨天拉一次入库。点「拉取最新数据」按页面上的日期重拉。
 店铺直接用现有的 dy_shop，登录凭证也是现成的，不用重新登录。
 """
 from __future__ import annotations
@@ -871,7 +871,7 @@ def _do_refresh(start_date: str, end_date: str, trigger: str) -> None:
 
 
 def sync_yesterday() -> dict:
-    """每天 00:01 把昨天的违规再拉一次入库。和今天的 10 分钟任务共用一把锁。"""
+    """每天 03:00 把昨天的违规再拉一次入库。和今天的 10 分钟任务共用一把锁。"""
     day = yesterday_text()
     if not _JOB.acquire(timeout=30 * 60):
         message = "昨天的违规没有入库，今天的更新还在进行"
