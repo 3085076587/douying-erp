@@ -253,12 +253,12 @@ async def _violation_day_loop() -> None:
 
 
 async def _deal_day_loop() -> None:
-    """成交日：每天 03:00 拉昨天。00:01 罗盘还不认昨天，会回日期校验失败。"""
-    logger.info("成交日已启动，每天 03:00 拉昨天")
-    write_start("成交日，每天 03:00 拉昨天")
+    """成交日：每天 07:00 拉昨天。03:00 罗盘仍回日期校验失败。"""
+    logger.info("成交日已启动，每天 07:00 拉昨天")
+    write_start("成交日，每天 07:00 拉昨天")
     while True:
         try:
-            await asyncio.sleep(_seconds_until_clock(3, 0))
+            await asyncio.sleep(_seconds_until_clock(7, 0))
             write_start("成交日")
             message = await asyncio.to_thread(sync_yesterday)
             write_success(f"成交日 {message}")
@@ -272,12 +272,12 @@ async def _deal_day_loop() -> None:
 
 
 async def _product_day_loop() -> None:
-    """商品日：每天 03:00 把每家店缺的日期补到昨天。00:01 罗盘还不认昨天。实时商品仍走 10 分钟任务。"""
-    logger.info("商品日已启动，每天 03:00 补齐到昨天")
-    write_start("商品日，每天 03:00 补齐到昨天")
+    """商品日：每天 07:00 把每家店缺的日期补到昨天。03:00 罗盘仍回日期校验失败。实时商品仍走 10 分钟任务。"""
+    logger.info("商品日已启动，每天 07:00 补齐到昨天")
+    write_start("商品日，每天 07:00 补齐到昨天")
     while True:
         try:
-            await asyncio.sleep(_seconds_until_clock(3, 0))
+            await asyncio.sleep(_seconds_until_clock(7, 0))
             write_start("商品日")
             message = await asyncio.to_thread(sync_product_yesterday)
             write_success(f"商品日 {message}")
