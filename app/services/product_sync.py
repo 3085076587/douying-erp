@@ -73,10 +73,15 @@ def ensure_product_table() -> None:
 
 
 def sync_yesterday() -> str:
-    """从每家店最后一条商品日的下一天补到昨天。没拉到的日期保持空缺，下次凌晨继续补。"""
+    """只补还没有昨天商品日的店。昨天已经入库的店不再请求罗盘。"""
     ensure_product_table()
     yesterday = date.today() - timedelta(days=1)
-    only_ids: set[int] | None = None
+    missing = _missing_shop_ids(yesterday)
+    if not missing:
+        message = f"{yesterday.isoformat()} 已有数据，跳过"
+        print(message, flush=True)
+        return message
+    only_ids: set[int] | None = set(missing)
     failed_ids: list[int] = []
     offline_ids: list[int] = []
     for attempt in range(1, 4):
@@ -127,6 +132,28 @@ def _dates(start: date, end: date) -> list[date]:
         days.append(cursor)
         cursor += timedelta(days=1)
     return days
+
+
+def _missing_shop_ids(yesterday: date) -> list[int]:
+    """昨天还没有商品行的店。已经有昨天数据的店不在这里。"""
+    with SessionLocal() as db:
+        rows = db.execute(
+            text(
+                """
+                SELECT s.id
+                FROM dy_shop s
+                LEFT JOIN (
+                    SELECT store_pk, MAX(stat_date) AS last_day
+                    FROM dy_product_day
+                    GROUP BY store_pk
+                ) d ON d.store_pk = s.id
+                WHERE d.last_day IS NULL OR d.last_day < :yesterday
+                ORDER BY s.id
+                """
+            ),
+            {"yesterday": yesterday},
+        ).all()
+    return [int(row[0]) for row in rows]
 
 
 def _due_days(store_pk: int, yesterday: date) -> list[date]:

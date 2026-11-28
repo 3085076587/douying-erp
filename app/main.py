@@ -30,7 +30,6 @@ from app.services import compensate_service, invoice_service
 from app.services.deal_sync import ensure_deal_table, sync_yesterday
 from app.services.product_refund_rate import ensure_refund_rate_table
 from app.services.product_sync import ensure_product_table
-from app.services.product_sync import sync_yesterday as sync_product_yesterday
 from app.services.account_service import live_cache_fresh, refresh_saved_accounts
 from app.services.shop_owner import ensure_charge_tables
 from app.services.store_service import (
@@ -271,23 +270,24 @@ async def _deal_day_loop() -> None:
             await asyncio.sleep(60)
 
 
-async def _product_day_loop() -> None:
-    """商品日：每天 07:00 把每家店缺的日期补到昨天。03:00 罗盘仍回日期校验失败。实时商品仍走 10 分钟任务。"""
-    logger.info("商品日已启动，每天 07:00 补齐到昨天")
-    write_start("商品日，每天 07:00 补齐到昨天")
-    while True:
-        try:
-            await asyncio.sleep(_seconds_until_clock(7, 0))
-            write_start("商品日")
-            message = await asyncio.to_thread(sync_product_yesterday)
-            write_success(f"商品日 {message}")
-            logger.info("商品日 %s", message)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("商品日更新失败")
-            write_fail("商品日")
-            await asyncio.sleep(60)
+# 商品日改由宝塔计划任务每 2 小时调用 product_sync.sync_yesterday，项目启动时不再跑。
+# async def _product_day_loop() -> None:
+#     """商品日：每天 07:00 把每家店缺的日期补到昨天。03:00 罗盘仍回日期校验失败。实时商品仍走 10 分钟任务。"""
+#     logger.info("商品日已启动，每天 07:00 补齐到昨天")
+#     write_start("商品日，每天 07:00 补齐到昨天")
+#     while True:
+#         try:
+#             await asyncio.sleep(_seconds_until_clock(7, 0))
+#             write_start("商品日")
+#             message = await asyncio.to_thread(sync_product_yesterday)
+#             write_success(f"商品日 {message}")
+#             logger.info("商品日 %s", message)
+#         except asyncio.CancelledError:
+#             raise
+#         except Exception:
+#             logger.exception("商品日更新失败")
+#             write_fail("商品日")
+#             await asyncio.sleep(60)
 
 
 async def _compensate_loop() -> None:
@@ -442,7 +442,7 @@ async def lifespan(_: FastAPI):
     invoice_task = asyncio.create_task(_invoice_loop())
     compensate_task = asyncio.create_task(_compensate_loop())
     deal_task = asyncio.create_task(_deal_day_loop())
-    product_day_task = asyncio.create_task(_product_day_loop())
+    # product_day_task = asyncio.create_task(_product_day_loop())
     logger.info("%s 已启动，环境：%s", settings.app_name, settings.app_env)
     try:
         yield
@@ -456,7 +456,7 @@ async def lifespan(_: FastAPI):
         invoice_task.cancel()
         compensate_task.cancel()
         deal_task.cancel()
-        product_day_task.cancel()
+        # product_day_task.cancel()
         logger.info("%s 已关闭", settings.app_name)
 
 
