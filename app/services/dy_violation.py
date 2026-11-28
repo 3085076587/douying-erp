@@ -100,7 +100,7 @@ def _execute_penalty(item: dict, enums: dict[str, dict[str, str]]) -> str:
         text = "、".join(names)
     if not text:
         text = _penalty_text(enums, _first(item, "penalize_type", "penalty_type", "punish_type"))
-    return text[:50]
+    return text
 
 
 def _shape_violation(item: dict, enums: dict[str, dict[str, str]]) -> dict:

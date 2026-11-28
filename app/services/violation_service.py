@@ -13,11 +13,11 @@ import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.models.shop import Shop
 from app.models.violation import DyViolation
 from app.services import fund_cache
@@ -211,7 +211,7 @@ _SHOP_STATE_LABEL = {
     "店铺限制出单": "限单中",
 }
 _SHOP_STATE_RANK = {"已清退": 0, "停业整顿中": 1, "限单中": 2}
-_CLAUSE_SPLIT = re.compile(r"[;；]")
+_CLAUSE_SPLIT = re.compile(r"[;；、]")
 
 
 def _clause_days(text: str) -> int:
@@ -219,6 +219,26 @@ def _clause_days(text: str) -> int:
     for match in _DUE_DAYS_RE.finditer(text or ""):
         days = max(days, int(match.group(1)))
     return days
+
+
+def ensure_violation_penalty_column() -> None:
+    """处罚方式要整段留下。50 字会把后面的店铺清退切掉。"""
+    with engine.begin() as conn:
+        row = conn.execute(text(
+            """
+            SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'dy_violation'
+              AND COLUMN_NAME = 'penalty'
+            """
+        )).one_or_none()
+        if row is None:
+            return
+        kind = str(row[0] or "").lower()
+        if kind in {"text", "mediumtext", "longtext"}:
+            return
+        conn.execute(text("ALTER TABLE dy_violation MODIFY penalty TEXT NOT NULL"))
 
 
 def shop_states(db: Session) -> dict[int, tuple[str, str]]:
@@ -720,7 +740,7 @@ def _upsert_rows(db: Session, shop: Shop, items: list[dict]) -> int:
             db.add(record)
         record.violated_at = _parse_time(str(item.get("time") or ""))
         record.violation_type = str(item.get("type") or "")[:50]
-        record.penalty = str(item.get("penalty") or "")[:50]
+        record.penalty = str(item.get("penalty") or "")
         record.credit_change = str(item.get("credit") or "")[:50]
         record.description = str(item.get("description") or "")
         record.status = str(item.get("status") or "")[:20]

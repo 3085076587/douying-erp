@@ -32,6 +32,7 @@ from app.services.product_refund_rate import ensure_refund_rate_table
 from app.services.product_sync import ensure_product_table
 from app.services.account_service import live_cache_fresh, refresh_saved_accounts
 from app.services.shop_owner import ensure_charge_tables
+from app.services.violation_service import ensure_violation_penalty_column
 from app.services.store_service import (
     ensure_credential_at_column,
     ensure_owner_account_column,
@@ -421,6 +422,7 @@ async def lifespan(_: FastAPI):
         ensure_shop_id_unique()
         ensure_user_sections()
         ensure_charge_tables()
+        ensure_violation_penalty_column()
         db = SessionLocal()
         try:
             ensure_admin(db)
